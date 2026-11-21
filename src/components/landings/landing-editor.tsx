@@ -34,6 +34,7 @@ function adminToStoreProduct(product: ProductDTO): StoreProductDTO {
       name: variant.name,
       price: variant.price,
       isDefault: variant.isDefault,
+      available: Math.max(0, variant.stockPhysical - variant.stockReserved),
     })),
   };
 }

@@ -25,6 +25,15 @@
 | 20 | Ciclos permitidos solo con `fallback` saliente | Evita bucles sin salida manteniendo el patrón del diseño |
 | 21 | Simulador local con límite de pasos | Sin efectos comerciales ni bucles infinitos |
 
+| 22 | Reutilizar `stockPhysical`/`stockReserved` | Evita duplicar inventario; disponible = físico − reservado |
+| 23 | `FOR UPDATE` + validación global antes de reservar | Evita sobreventa y reservas parciales concurrentes |
+| 24 | Función `next_order_number` por tenant | Numeración segura y concurrente sin tablas de secuencia por negocio |
+| 25 | Idempotencia por `tenantId + idempotencyKey` | Un doble clic no crea dos pedidos |
+| 26 | Estados de pago y preparación separados | Verificar, despachar, entregar y cobrar son acciones independientes |
+| 27 | `advancePaid` = total cobrado acumulado | Constraint corregido a `advancePaid <= total` (migración correctiva) |
+| 28 | Comprobantes en almacenamiento privado | Nunca URL pública; verificación manual del OWNER |
+| 29 | Sin expiración automática de reservas | No inventar vencimientos ni procesos programados; política futura |
+
 ## Cambios de requisitos
 
 - La referencia oficial de Stitch mostraba datos de stock y despacho; se omitieron porque no existen datos confiables en esta fase.

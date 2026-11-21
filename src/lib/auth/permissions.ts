@@ -31,3 +31,20 @@ export function assertFlowManager(role: string) {
 export function assertFlowPublisher(role: string) {
   return assertRole({ role }, CATALOG_OWNER_ROLES);
 }
+
+/** Operaciones comerciales: OWNER y OPERATOR crean/listan; OWNER ajusta stock y verifica pagos. */
+export function assertOrderManager(role: string) {
+  return assertRole({ role }, CATALOG_MANAGE_ROLES);
+}
+
+export function assertInventoryAdjustment(role: string) {
+  return assertRole({ role }, CATALOG_OWNER_ROLES);
+}
+
+export function assertPaymentVerification(role: string) {
+  return assertRole({ role }, CATALOG_OWNER_ROLES);
+}
+
+export function assertFulfillmentManager(role: string) {
+  return assertRole({ role }, CATALOG_MANAGE_ROLES);
+}

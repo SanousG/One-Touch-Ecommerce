@@ -11,6 +11,8 @@ x-app-env: &app-env
   AUTH_COOKIES_SECURE: "${AUTH_COOKIES_SECURE:-false}"
   # Almacenamiento de imágenes de catálogo (volumen persistente del proyecto).
   PRODUCT_UPLOAD_DIR: "/app/storage/product-images"
+  # Comprobantes de adelanto: almacenamiento privado, nunca expuesto públicamente.
+  VOUCHER_UPLOAD_DIR: "/app/storage/payment-vouchers"
 
 services:
   db:

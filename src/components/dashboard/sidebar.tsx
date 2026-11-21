@@ -16,8 +16,8 @@ const items: NavItem[] = [
   { label: "Flujos de venta", icon: "split", href: "/dashboard/flows" },
   { label: "Plantillas", icon: "chat", href: "/dashboard/templates" },
   { label: "Conversaciones", icon: "chat" },
-  { label: "Pedidos", icon: "receipt" },
-  { label: "Inventario", icon: "warehouse" },
+  { label: "Pedidos", icon: "receipt", href: "/dashboard/orders" },
+  { label: "Inventario", icon: "warehouse", href: "/dashboard/inventory" },
   { label: "Configuración", icon: "settings", href: "/dashboard/configuracion" },
 ];
 

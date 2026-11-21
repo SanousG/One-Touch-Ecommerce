@@ -17,6 +17,7 @@ export type StoreVariantDTO = {
   name: string;
   price: string;
   isDefault: boolean;
+  available: number;
 };
 
 export type StoreImageDTO = { id: string; url: string };
@@ -108,6 +109,8 @@ function toStoreProduct(product: {
     name: string;
     price: Prisma.Decimal;
     isDefault: boolean;
+    stockPhysical: number;
+    stockReserved: number;
   }[];
 }): StoreProductDTO {
   const images = product.images.map((image) => ({ id: image.id, url: imageUrl(image.id) }));
@@ -117,6 +120,7 @@ function toStoreProduct(product: {
     name: variant.name,
     price: variant.price.toFixed(2),
     isDefault: variant.isDefault,
+    available: Math.max(0, variant.stockPhysical - variant.stockReserved),
   }));
   return {
     id: product.id,
@@ -138,7 +142,7 @@ const publicProductInclude = {
   variants: {
     where: { isActive: true },
     orderBy: { isDefault: "desc" as const },
-    select: { id: true, sku: true, name: true, price: true, isDefault: true },
+    select: { id: true, sku: true, name: true, price: true, isDefault: true, stockPhysical: true, stockReserved: true },
   },
 };
 
@@ -226,6 +230,12 @@ export async function validateCart(tenantId: string, items: CartInput[]): Promis
     const variant = byId.get(variantId);
     if (!variant) {
       issues.push("Un artículo ya no está disponible para la venta.");
+      invalidVariantIds.push(variantId);
+      continue;
+    }
+    const available = variant.stockPhysical - variant.stockReserved;
+    if (available < quantity) {
+      issues.push(`Stock insuficiente para ${variant.sku}: disponibles ${Math.max(0, available)}.`);
       invalidVariantIds.push(variantId);
       continue;
     }

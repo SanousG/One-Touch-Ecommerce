@@ -45,6 +45,64 @@ enum FlowEndMode {
   FINISH_AFTER_CONFIRMATION
 }
 
+enum OrderOrigin {
+  MANUAL
+  // CHATBOT se reserva para fases posteriores.
+  CHATBOT
+}
+
+enum PaymentStatus {
+  PENDING
+  ADVANCE_PENDING
+  VOUCHER_RECEIVED
+  ADVANCE_VERIFIED
+  PAID
+}
+
+enum FulfillmentStatus {
+  WAITING_ADVANCE
+  READY_TO_PREPARE
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryMode {
+  LOCAL
+  PICKUP
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  TRANSFER
+}
+
+enum MovementReason {
+  INITIAL
+  RESTOCK
+  DAMAGE
+  COUNT_CORRECTION
+  OTHER
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum OrderEventType {
+  CREATED
+  VOUCHER_RECEIVED
+  ADVANCE_VERIFIED
+  PAYMENT_RECORDED
+  PREPARATION_STARTED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
 model User {
   id             String              @id @default(cuid())
   name           String
@@ -131,6 +189,12 @@ model Tenant {
   flows       SalesFlow[]
   flowVersions SalesFlowVersion[]
   templates   MessageTemplate[]
+  orders      Order[]
+  orderItems  OrderItem[]
+  reservations StockReservation[]
+  movements   InventoryMovement[]
+  vouchers    PaymentVoucher[]
+  orderEvents OrderEvent[]
 
   @@map("tenants")
 }
@@ -200,14 +264,15 @@ model ProductVariant {
   price         Decimal   @db.Decimal(12, 2)
   isActive      Boolean   @default(true)
   isDefault     Boolean   @default(false)
-  // Campos reservados para el inventario de fases posteriores.
-  // No se exponen ni se modifican desde el catálogo de esta fase.
   stockPhysical Int       @default(0)
   stockReserved Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  movements     InventoryMovement[]
+  reservations  StockReservation[]
+  orderItems    OrderItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, productId])
@@ -356,4 +421,146 @@ model SalesFlowVersion {
   @@unique([flowId, version])
   @@index([tenantId, flowId])
   @@map("sales_flow_versions")
+}
+
+/// Movimiento auditável de inventario. Nunca se elimina, ni si el producto se archiva.
+model InventoryMovement {
+  id             String          @id @default(cuid())
+  tenantId       String
+  variantId      String
+  delta          Int
+  previousPhysical Int
+  newPhysical    Int
+  reason         MovementReason
+  note           String?
+  reference      String?
+  createdById    String
+  createdAt      DateTime        @default(now())
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variant        ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, variantId, createdAt])
+  @@map("inventory_movements")
+}
+
+/// Pedido comercial. Expone estados de pago y preparación independientes.
+model Order {
+  id                String             @id @default(cuid())
+  tenantId          String
+  orderNumber       Int
+  origin            OrderOrigin        @default(MANUAL)
+  customerName      String
+  customerPhone     String
+  deliveryMode      DeliveryMode
+  deliveryAddress   String?
+  shippingCost      Decimal            @default(0) @db.Decimal(12, 2)
+  shippingKnown     Boolean            @default(true)
+  paymentMethod     PaymentMethod
+  requiresAdvance   Boolean            @default(false)
+  advanceRequired   Decimal            @default(0) @db.Decimal(12, 2)
+  advancePaid       Decimal            @default(0) @db.Decimal(12, 2)
+  subtotal          Decimal            @db.Decimal(12, 2)
+  total             Decimal            @db.Decimal(12, 2)
+  paymentStatus     PaymentStatus      @default(PENDING)
+  fulfillmentStatus FulfillmentStatus  @default(READY_TO_PREPARE)
+  notes             String?
+  idempotencyKey    String?
+  confirmedAt       DateTime           @default(now())
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items             OrderItem[]
+  reservations      StockReservation[]
+  vouchers          PaymentVoucher[]
+  events            OrderEvent[]
+
+  @@unique([tenantId, orderNumber])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, fulfillmentStatus])
+  @@index([tenantId, paymentStatus])
+  @@map("orders")
+}
+
+/// Línea con snapshot inmutable del producto en el momento de confirmar.
+model OrderItem {
+  id          String         @id @default(cuid())
+  tenantId    String
+  orderId     String
+  variantId   String
+  productName String
+  variantName String
+  sku         String
+  quantity    Int
+  unitPrice   Decimal        @db.Decimal(12, 2)
+  lineTotal   Decimal        @db.Decimal(12, 2)
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, orderId])
+  @@map("order_items")
+}
+
+/// Reserva de stock. Una fila por variante y pedido (se acumula en `quantity`).
+model StockReservation {
+  id          String             @id @default(cuid())
+  tenantId    String
+  orderId     String
+  variantId   String
+  quantity    Int
+  status      ReservationStatus  @default(ACTIVE)
+  createdAt   DateTime           @default(now())
+  releasedAt  DateTime?
+  consumedAt  DateTime?
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order       Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant     ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, variantId])
+  @@index([tenantId, status])
+  @@map("stock_reservations")
+}
+
+/// Comprobante privado de adelanto. Nunca se expone públicamente.
+model PaymentVoucher {
+  id          String   @id @default(cuid())
+  tenantId    String
+  orderId     String
+  storageKey  String   @unique
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  amountReported Decimal @db.Decimal(12, 2)
+  reference   String?
+  verified    Boolean  @default(false)
+  verifiedAmount Decimal? @db.Decimal(12, 2)
+  verifiedById String?
+  verifiedAt  DateTime?
+  createdById String
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId])
+  @@map("payment_vouchers")
+}
+
+/// Historial cronológico de eventos del pedido.
+model OrderEvent {
+  id          String         @id @default(cuid())
+  tenantId    String
+  orderId     String
+  type        OrderEventType
+  description String
+  amount      Decimal?       @db.Decimal(12, 2)
+  createdById String
+  createdAt   DateTime       @default(now())
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, orderId, createdAt])
+  @@map("order_events")
 }

@@ -53,6 +53,20 @@ Validación de publicación: Inicio único con salida, sin conexiones huérfanas
 
 Permisos: OWNER y OPERATOR crean/editan/guardan y simulan; solo OWNER publica. Todo se filtra por `tenantId` en servidor.
 
+## Motor comercial (Fase 4A)
+
+`src/lib/commerce/service.ts` centraliza inventario, pedidos, reservas, adelantos, transiciones e historial. Todo filtra por `tenantId` y usa transacciones.
+
+- `ProductVariant.stockPhysical/stockReserved` + `InventoryMovement` (auditável, nunca se borra).
+- `StockReservation` por pedido y variante: `ACTIVE → RELEASED | CONSUMED`.
+- `Order` + `OrderItem` con snapshots; `PaymentVoucher`, `OrderEvent`.
+- Numeración por tenant con función PostgreSQL `next_order_number`.
+- Concurrencia: `SELECT ... FOR UPDATE` sobre variantes; validación de todas las líneas antes de reservar.
+- Idempotencia: `@@unique([tenantId, idempotencyKey])`.
+- Estados de pago y preparación independientes; verificar adelanto no inicia preparación; entregar no marca pago.
+- Comprobantes privados en `/app/storage/payment-vouchers`, endpoint con sesión y `no-store`.
+- Tienda pública consulta `stockPhysical − stockReserved` y rechaza cantidades sin disponibilidad.
+
 ## Relación con fases futuras
 
 Plantilla fija en 3A. La Fase 3B añadirá el editor visual de flujos; las landing seguirán siendo puntos de entrada al producto. El chatbot podrá usar la referencia del mensaje para identificar productos. Inventario y pedidos siguen pendientes.

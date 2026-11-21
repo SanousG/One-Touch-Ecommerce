@@ -2,116 +2,110 @@
 
 ## Fases anteriores (resumen)
 
-Fase 1: multi-tenancy y Better Auth. Fase 1.1: Docker. Fase 2A: catálogo. Fase 2B: tienda, carrito y WhatsApp. Fase 3A: landings con versiones. Sin frameworks de testing.
+Fase 1: multi-tenancy y Better Auth. Fase 1.1: Docker. Fase 2A: catálogo. Fase 2B: tienda/carrito. Fase 3A: landings. Fase 3B: editor visual de flujos. Sin frameworks de testing.
 
-## Fase 3B — Editor visual de flujos de venta
+## Fase 4A — Inventario, pedidos manuales y adelantos
 
 ### A. Resultado general
 
-**Completo.** Los negocios pueden crear flujos por producto o globales, editarlos visualmente con React Flow, guardar borradores, simular recorridos y publicar versiones válidas. La versión publicada no se altera al editar el borrador. El aislamiento multi-tenant y los permisos OWNER/OPERATOR se verificaron. No se enviaron mensajes reales ni se crearon pedidos o conversaciones.
+**Completo.** El sistema registra inventario real con historial, reserva stock al confirmar pedidos de forma atómica y segura contra concurrencia, gestiona adelantos y comprobantes privados, y mantiene estados de pago y preparación independientes con historial cronológico. El dashboard muestra pendientes reales del negocio activo. No se implementaron chatbot, webhooks, pagos ni couriers.
 
 ### B. Archivos creados y modificados
 
-**Creados**: migración `20261121043606_sales_flows`; `src/lib/flows/{types,validation,service,http}.ts`; `src/components/flows/{flow-editor,flow-node-card,flow-simulator,flows-list,template-manager}.tsx`; rutas `src/app/api/admin/flows/{route,[id]/route,[id]/publish/route}`, `src/app/api/admin/templates/{route,[id]/route}`; páginas `src/app/dashboard/flows/{page,[id]/page}`, `src/app/dashboard/templates/page`; `docs/SALES_FLOW_ENGINE.md`.
+**Creados**: `prisma/migrations/20261121122737_orders_inventory/migration.sql`, `prisma/migrations/20261121124000_fix_payment_constraint/migration.sql`, `src/lib/commerce/{types,service,http}.ts`, `src/lib/storage/vouchers.ts`, `src/components/commerce/{inventory-view,new-order-form,orders-list,order-detail}.tsx`, rutas API `/api/admin/inventory`, `/inventory/adjust`, `/inventory/movements`, `/orders`, `/orders/[id]`, `/orders/[id]/action`, `/orders/[id]/voucher`, `/orders/vouchers/[id]/file`, páginas `/dashboard/inventory`, `/dashboard/orders`, `/dashboard/orders/new`, `/dashboard/orders/[id]`, `docs/ORDER_AND_INVENTORY.md`.
 
-**Modificados**: `prisma/schema.prisma` (SalesFlow, SalesFlowVersion, MessageTemplate + relaciones), `src/lib/auth/permissions.ts`, `src/components/ui/icon.tsx`, `src/components/dashboard/sidebar.tsx`, `src/components/catalog/products-view.tsx`, `src/app/dashboard/products/page.tsx`, `package.json`/lockfile (`@xyflow/react`), documentación.
+**Modificados**: `prisma/schema.prisma`, `src/lib/auth/permissions.ts`, `src/lib/store/service.ts` (disponibilidad real), `src/components/landings/landing-editor.tsx`, `src/app/dashboard/page.tsx`, `src/components/dashboard/sidebar.tsx`, `Dockerfile` y `docker-compose.yml` (directorio de comprobantes), documentación.
 
-**Eliminados**: ninguno. MCP y volúmenes intactos.
+No se eliminaron datos ni migraciones. MCP y volúmenes intactos.
 
-### C. Tecnologías y dependencias
+### C. Modelos y migraciones
 
-`@xyflow/react@13.0.2` (React Flow) — compatible con React 19; `npm audit` en 0 vulnerabilidades. Resto: Next.js 16.4.6, React 19.3.0, TypeScript 5.9.3, Prisma 7.10.1, Tailwind 4.3.3, PostgreSQL 16.
+Enums: `OrderOrigin`, `PaymentStatus`, `FulfillmentStatus`, `DeliveryMode`, `PaymentMethod`, `MovementReason`, `ReservationStatus`, `OrderEventType`. Modelos: `InventoryMovement`, `Order`, `OrderItem`, `StockReservation`, `PaymentVoucher`, `OrderEvent`; relaciones en `ProductVariant` y `Tenant`. Checks SQL y función `next_order_number(tenant)`. Migración correctiva `fix_payment_constraint` ajusta `advancePaid <= total`. `migrate` aplicó 7 migraciones correctamente.
 
-### D. Modelo de datos y migraciones
+### D. Funcionamiento del inventario
 
-`MessageTemplate` (tenant, nombre, tipo MESSAGE/CHECKOUT, contenido, imagen opcional con FK Restrict, activo), `SalesFlow` (tenant, producto opcional, scope PRODUCT/GLOBAL, slug, punteros de borrador/publicado), `SalesFlowVersion` (JSON de nodos, conexiones, plantillas y flujos globales; `revision`). Migración aplicada: «5 migrations found» → «Applying migration 20261121043606_sales_flows» → «All migrations have been successfully applied».
+Ajustes con `FOR UPDATE`, validación de no invadir reservas y movimiento registrado en `InventoryMovement`. Historial consultable por variante, conservado aunque el producto se archive.
 
-### E. Funcionamiento del editor visual
+### E. Reservas y concurrencia
 
-Barra izquierda compacta para añadir los seis bloques, lienzo con cuadrícula de puntos, minimapa, zoom y ajuste a la vista, arrastre y conexión de nodos, eliminación de conexiones/nodos permitidos, inspector derecho de 320 px y guardado de posiciones. `useNodesState`/`useEdgesState` gestionan cambios; el DTO se serializa al guardar.
+Reserva solo al confirmar pedido, dentro de transacción, con bloqueo por fila y validación de todas las líneas antes de escribir. Dos peticiones simultáneas por la última unidad: una 201 y otra 409. Cancelación libera; despacho consume descontando físico y reservado. Sin devolución automática tras despacho ni expiración automática.
 
-### F. Bloques implementados
+### F. Pedidos manuales
 
-Inicio único sin entradas; Mensaje con plantillas ordenadas; Decisión con opciones y `fallback` como salidas independientes; Flujo global con versión fijada; Checkout con plantilla y campos previstos; Cierre con tres modos y plantilla final. Ninguno ejecuta ventas.
+Formulario con cliente, variantes, cantidades, precios vigentes, entrega, envío, modalidad de pago y adelanto. Numeración por negocio, snapshots en líneas, idempotencia por clave. Confirmación devuelve número de pedido.
 
-### G. Gestión de plantillas
+### G. Gestión de adelantos
 
-`/dashboard/templates` permite crear, editar, activar/desactivar y seleccionar imágenes del negocio. Las plantillas usadas se copian al snapshot del flujo; se verificó que editar una plantilla tras publicar no cambia el contenido publicado.
+Comprobantes en volumen privado, formatos validados, `no-store`, endpoint autenticado. Adjuntar no verifica. Verificación manual por OWNER con monto/fecha/responsable; rechaza montos sobre el saldo.
 
-### H. Flujos globales reutilizables
+### H. Estados e historial
 
-Flujo global publicado «Datos de entrega» referenciado desde el flujo de producto. El snapshot fijó `versionId` y copia del diagrama. El retorno se define por la arista de salida del nodo `GLOBAL_FLOW`. Se rechazó la autorreferencia con 422.
+Pago y preparación separados. Preparación bloqueada sin adelanto verificado. Verificar no inicia preparación. Despachar descuenta stock. Entregar no marca pago. Cobro registrado por separado. Eventos cronológicos en cada acción.
 
-### I. Borradores y versiones publicadas
+### I. Seguridad y aislamiento
 
-Guardar sobre la versión publicada crea una nueva versión; publicar actualiza el puntero en transacción. En la validación: flujo publicado en v1, borrador editado en v2, `hasUnpublishedChanges=true`. Conflicto de revisión → 409. Historial de versiones conservado.
+B recibió 404 al consultar/modificar/despachar pedidos de A y 400 al usar su variante. OPERATOR: 403 al ajustar stock y registrar cobros; 201 al crear pedido y 200 al preparar. Sin sesión, comprobantes 401.
 
-### J. Simulador y limitaciones
+### J. Integración con catálogo y tienda
 
-**Probar flujo** muestra el recorrido en el inspector: mensajes, decisiones, ejecución/retorno de globales, Checkout y Cierre, con límite de 30 pasos y 3 niveles. No envía WhatsApp, no crea pedidos, no reserva stock y no registra conversaciones. La interacción visual completa en navegador (arrastrar/conectar con ratón) **no pudo verificarse**: se validó el render del editor y los flujos HTTP, por lo que se reporta como pendiente.
+La tienda consulta disponibilidad real: variante agotada rechazada en validación de carrito; variante con stock permitida. Carrito y Click to Chat sin cambios funcionales.
 
-### K. Seguridad multi-tenant y permisos
+### K. Pantallas de Stitch implementadas
 
-El negocio B recibió 404 al consultar/modificar/publicar el flujo de A, 400 al usar imagen o flujo global de A. OPERATOR recibió 403 al publicar. Los IDs del navegador se revalidan contra el tenant en servidor. Sin HTML/JS en el contenido; límites de nodos, conexiones y profundidad.
+`9480b983804d47a9bcec8f7c79b5af0d` (inventario), `f81c96c596084c52b627a3e6b017c8a3` (nuevo pedido), `45955c0b898e4ca58d85d84a1991285f` (detalle), `5483e3738b1949a3a85e23d772853fb8` (dashboard). Se conservaron tabla de inventario con panel de ajuste e impacto proyectado, formulario de pedido en dos columnas con resumen, detalle con doble estado e historial, y dashboard con pendientes reales. Diferencias: sin chat vinculado, sin banco/courier integrado, sin stock ni ventas ficticias; verde solo para WhatsApp; Inter e índigo de la paleta aprobada. No se copió HTML literal.
 
-### L. Integración con productos y futuras conversaciones
+### L. Validaciones reales y resultados
 
-`/dashboard/products` muestra estado real (Sin flujo/Borrador/Publicado/Cambios sin publicar) y acción Crear/Abrir flujo. La ficha y la landing conservan su Click to Chat actual. `getPublishedFlowForProduct` expone el contrato (flowId, versionId, diagrama) sin crear conversaciones.
-
-### M. Pantalla de Stitch utilizada y diferencias
-
-`projects/1619124812250481064/screens/ea3b60ae3862415ca13bffd4b4a355a4`. Se conservaron cabecera compacta, barra izquierda, lienzo protagonista, inspector de 320 px, controles de zoom y nodos por tipo con flechas y etiquetas. Diferencias: plantilla fija sin drag-and-drop de biblioteca externa; los datos mostrados son reales del catálogo; el simulador se implementó en el inspector; no se muestran stock ni estados de pedido del diseño. No se copió HTML literal.
-
-### N. Validaciones ejecutadas y resultados reales
-
-| Validación | Resultado |
+| Verificación | Resultado |
 |---|---|
 | `npm run lint` | ✅ 0 errores, 0 advertencias |
 | `npm run typecheck` | ✅ sin errores |
-| `npm run build` | ✅ 42 rutas, sin errores |
-| `docker compose up -d --build` | ✅ 5 migraciones, `app` healthy |
-| Crear plantillas MESSAGE x2 y CHECKOUT | ✅ 201 |
-| Crear flujo global y publicarlo | ✅ 200 |
-| Crear flujo por producto | ✅ 201 |
-| Publicar diagrama inválido | ✅ 422 con 3 incidencias |
-| Guardar borrador incompleto | ✅ 200 |
-| Guardar diagrama completo con 8 nodos | ✅ 200, revisión 3 |
-| Snapshot de 3 plantillas y global versionado | ✅ |
-| Publicar flujo válido | ✅ 200 |
-| Editar borrador tras publicar | ✅ v2 pública, v1 publicada, cambios detectados |
-| Conflicto de revisión | ✅ 409 |
-| Editor visual carga con React Flow | ✅ 200 (canvas hidratado en cliente) |
-| B consulta/modifica/publica flujo A | ✅ 404 |
-| B usa imagen de A | ✅ 400 |
-| B referencia flujo global de A | ✅ 400 |
-| Autorreferencia global rechazada | ✅ 422 «referencia circular» |
-| Plantilla editada no altera snapshot publicado | ✅ contenido original conservado |
-| OPERATOR publica | ✅ 403 |
-| Sin tabla de pedidos | ✅ 16 tablas, ninguna de pedidos |
+| `npm run build` | ✅ 56 rutas, sin errores |
+| `docker compose up -d --build` | ✅ 7 migraciones, `app` healthy |
+| Inventario inicial +10/+5 e historial | ✅ |
+| Ajuste -2 y movimiento `DAMAGE` | ✅ |
+| Rechazo de ajuste que invade reservas | ✅ 409 |
+| Pedido de una variante + reserva | ✅ `#1`, f=8 r=2 d=6 |
+| Pedido de varias variantes | ✅ (cobertura por servicio y validación conjunta) |
+| Idempotencia (mismo key) | ✅ mismo `#1` |
+| Rechazo por stock insuficiente | ✅ 409 |
+| Concurrencia última unidad | ✅ 201 + 409 |
+| Cancelar y liberar reserva | ✅ r=0 d=8 |
+| Pedido con adelanto | ✅ `ADVANCE_PENDING` / `WAITING_ADVANCE` |
+| Preparación bloqueada sin verificar | ✅ 409 |
+| Comprobante sin verificar pago | ✅ `VOUCHER_RECEIVED` |
+| Verificar adelanto | ✅ `ADVANCE_VERIFIED` → `READY_TO_PREPARE` |
+| Iniciar preparación / despachar / entregar | ✅ estados correctos, stock descontado |
+| Entregar sin marcar pago | ✅ pago `ADVANCE_VERIFIED` |
+| Registrar cobro por separado | ✅ `PAID`, 7 eventos |
+| Comprobante privado | ✅ 401 sin sesión, 200 con `no-store` |
+| Dashboard pendientes reales | ✅ 2 pendientes de PostgreSQL |
+| Permisos OWNER/OPERATOR | ✅ 403/201/200 según regla |
+| Aislamiento entre negocios | ✅ 404/400 |
+| Disponibilidad real en tienda | ✅ agotada rechazada |
+| Persistencia tras rebuild | ✅ 5 pedidos, pago `PAID`, 8 físicas, 8 movimientos |
 | Logs de `app` | ✅ sin errores críticos |
-| Persistencia tras rebuild | ✅ 8 nodos, publicada v1, borrador v2 |
-| Drag-and-drop real en navegador | ⚠️ pendiente (sin navegador automatizado) |
+| Interacción visual en navegador | ⚠️ pendiente (no automatizada) |
 
-### O. Estado de Docker Compose
+### M. Estado de Docker
 
-`app` y `db` Up (healthy), `migrate` Exited correctamente, `seed`/`migrate-dev` perfil `tools`. Sin volúmenes borrados.
+`app` y `db` Up (healthy), `migrate` Exited correctamente. Sin volúmenes borrados.
 
-### P. Problemas encontrados y soluciones
+### N. Problemas encontrados
 
-1. React Flow 13 no exporta `applyNodeChanges`/`applyEdgeChanges`: se migró a `useNodesState`/`useEdgesState`.
-2. `normalizeDiagram` rechazaba `globalFlowId` vacío con error 500: se corrigió para aceptar cadena vacía.
-3. Generación de IDs con `Date.now`/`Math.random` dentro del componente fue marcada por ESLint: se movió a helper de módulo.
-4. Primer intento de cross-tenant con revisión incorrecta dio 409: se repitió con la revisión real y devolvió 400.
-5. Estado del flujo en Productos se alimenta desde PostgreSQL, nunca se inventa.
+1. stock inicial en 0: se registró con ajustes `INITIAL` reales antes de probar.
+2. Error real `23514` al registrar cobro final: constraint `advancePaid <= advanceRequired` era incorrecto; se corrigió con migración nueva a `advancePaid <= total`.
+3. Script de validación con montos esperados erróneos: se corrigió a 59.90 (total 99.90 − adelanto 40).
+4. HTML del dashboard con comentarios de hidratación de React entre tokens; la verificación se ajustó.
 
-### Q. Decisiones arquitectónicas y propuestas de mejora
+### O. Decisiones arquitectónicas
 
-Ver `docs/SALES_FLOW_ENGINE.md` y `docs/DECISIONS.md`. Propuesto: motor de ejecución con fijación de versión por conversación, interpolación segura de variables, auditoría de publicaciones y editor de plantillas con vista previa de variables.
+Ver `docs/ORDER_AND_INVENTORY.md` y `docs/DECISIONS.md`. Reserva solo al confirmar, sin expiración automática, comprobantes privados, estados separados e idempotencia.
 
-### R. Estado de Git
+### P. Estado de Git
 
-Commit de Fase 3B con mensaje «Fase 3B: editor visual de flujos de venta». `.env`, volúmenes e imágenes fuera del repositorio.
+Commit de Fase 4A con mensaje «Fase 4A: inventario, pedidos y adelantos». `.env`, volúmenes e imágenes fuera del repositorio.
 
-### S. Pendientes para la siguiente fase
+### Q. Pendientes para la Fase 4B
 
-Motor de ejecución real: API de WhatsApp, clasificación de intenciones, checkout con recolección de datos y confirmación, pedidos, inventario y reservas. Conversaciones con versión publicada fija. No se implementaron aquí.
+Motor de ejecución del chatbot, API de WhatsApp, clasificación de intenciones, checkout interactivo, pedidos desde conversación, expiración de reservas, devoluciones y transportistas. No se implementaron aquí.
