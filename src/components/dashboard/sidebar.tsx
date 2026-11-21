@@ -13,6 +13,8 @@ const items: NavItem[] = [
   { label: "Inicio", icon: "grid", href: "/dashboard" },
   { label: "Productos", icon: "inventory", href: "/dashboard/products" },
   { label: "Tienda y landings", icon: "storefront", href: "/dashboard/landings" },
+  { label: "Flujos de venta", icon: "split", href: "/dashboard/flows" },
+  { label: "Plantillas", icon: "chat", href: "/dashboard/templates" },
   { label: "Conversaciones", icon: "chat" },
   { label: "Pedidos", icon: "receipt" },
   { label: "Inventario", icon: "warehouse" },

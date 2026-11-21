@@ -22,3 +22,12 @@ export function assertLandingManager(role: string) {
 export function assertLandingPublisher(role: string) {
   return assertRole({ role }, CATALOG_OWNER_ROLES);
 }
+
+/** Flujos de venta: mismo criterio que landings. OWNER publica. */
+export function assertFlowManager(role: string) {
+  return assertRole({ role }, CATALOG_MANAGE_ROLES);
+}
+
+export function assertFlowPublisher(role: string) {
+  return assertRole({ role }, CATALOG_OWNER_ROLES);
+}

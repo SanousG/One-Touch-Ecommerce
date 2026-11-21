@@ -45,7 +45,9 @@ export type IconName =
   | "whatsapp"
   | "rocket"
   | "link"
-  | "copy";
+  | "copy"
+  | "play"
+  | "split";
 
 const paths: Record<IconName, React.ReactNode> = {
   hub: <><circle cx="12" cy="12" r="3" /><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 6.5 10 10M17 6.5 14 10M7 17.5 10 14" /></>,
@@ -93,6 +95,8 @@ const paths: Record<IconName, React.ReactNode> = {
   rocket: <><path d="M13 4c4-1 7 2 6 6-1 5-5 8-9 9l-4-4c1-4 4-8 7-11Z" /><circle cx="14.5" cy="9.5" r="1.5" /><path d="m8 16-3 3M6 13l-3 1 3 3 2-1" /></>,
   link: <><path d="M10 13a4 4 0 0 0 6 .5l2-2a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 11a4 4 0 0 0-6-.5l-2 2A4 4 0 0 0 11.7 18l1-1" /></>,
   copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
+  play: <path d="m8 5 11 7-11 7V5Z" />,
+  split: <><path d="M6 4v6a4 4 0 0 0 4 4h8M6 20v-4a4 4 0 0 1 4-4" /><path d="m15 11 3 3-3 3M15 8l3-3-3-3" /></>,
 };
 
 type IconProps = SVGProps<SVGSVGElement> & { name: IconName; size?: number };

@@ -18,6 +18,13 @@
 | 14 | Mensaje de WhatsApp construido en servidor | Reutiliza reglas de la Fase 2B y revalida la landing |
 | 15 | Sin pruebas automatizadas | Verificación manual/HTTP documentada |
 
+| 16 | `@xyflow/react` 13.0.2 | Compatible con React 19/Next 16; API estable con `useNodesState`/`useEdgesState` |
+| 17 | JSON validado + DTOs compartidos | Evita JSON arbitrario y tipado duplicado entre editor y servidor |
+| 18 | Snapshot de plantillas y flujos globales por versión | Editar una plantilla o un global no cambia lo publicado |
+| 19 | Retorno de flujos globales por la arista de salida | Define siempre el punto de continuación sin estado global |
+| 20 | Ciclos permitidos solo con `fallback` saliente | Evita bucles sin salida manteniendo el patrón del diseño |
+| 21 | Simulador local con límite de pasos | Sin efectos comerciales ni bucles infinitos |
+
 ## Cambios de requisitos
 
 - La referencia oficial de Stitch mostraba datos de stock y despacho; se omitieron porque no existen datos confiables en esta fase.

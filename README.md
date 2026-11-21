@@ -1,6 +1,6 @@
 # One-Touch-Ecommerce
 
-Plataforma SaaS multi-tenant: panel administrativo, catálogo, tienda pública, carritos por negocio y **landings de producto**. Todo se ejecuta en Docker Desktop sin `npm run dev`.
+Plataforma SaaS multi-tenant con autenticación, catálogo, tienda pública, landings y **editor visual de flujos de venta**. Todo se ejecuta en Docker Desktop sin `npm run dev`.
 
 ## Arranque
 
@@ -11,29 +11,31 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Panel: http://localhost:3000/login — usa `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` de `.env` (crea el usuario con `docker compose run --rm seed`).
+Panel: http://localhost:3000/login — `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` de `.env` (crea el usuario con `docker compose run --rm seed`).
 
-## Landings de producto
+## Módulos administrativos
 
-Administración:
+| Ruta | Función |
+|---|---|
+| `/dashboard/products` | Catálogo; acción **Crear flujo** / **Abrir flujo** y estado real del flujo |
+| `/dashboard/landings` | Landings de producto con borrador/publicación |
+| `/dashboard/flows` | Flujos de venta por producto y flujos globales |
+| `/dashboard/flows/[id]` | Editor visual (React Flow), inspector, simulador y publicación |
+| `/dashboard/templates` | Plantillas de mensaje y checkout reutilizables |
+| `/dashboard/configuracion` | Número de WhatsApp del negocio (solo OWNER) |
+
+Flujo de trabajo: crear plantillas → crear flujo desde un producto → añadir/conectar bloques → guardar borrador → **Probar flujo** → publicar (solo OWNER). Editar después no altera la versión publicada.
+
+## Rutas públicas
 
 ```
-/dashboard/landings              # listado y creación
-/dashboard/landings/[id]         # editor: contenido + vista previa en vivo
-/dashboard/landings/[id]/preview # vista previa privada (noindex, no-store)
+/tienda/[tenantSlug]                                  # catálogo
+/tienda/[tenantSlug]/producto/[productSlug]           # ficha
+/tienda/[tenantSlug]/carrito                          # carrito
+/tienda/[tenantSlug]/landing/[landingSlug]            # landing publicada
 ```
 
-Flujo: crear landing desde un producto existente → guardar borrador → previsualizar → publicar. El borrador y la versión pública son snapshots independientes: editar el borrador **no** cambia la página pública hasta publicar.
-
-Pública (sin login), en piloto:
-
-```
-http://localhost:3000/tienda/ganga-online-1dtlkl/landing/barra-led-recargable
-```
-
-Formato general: `/tienda/[tenantSlug]/landing/[landingSlug]`. Devuelve 404 si no hay versión publicada, si el producto está oculto/archivado o si el tenant no corresponde.
-
-Permisos: OWNER crea, edita, guarda y publica. OPERATOR crea, edita y guarda borradores, pero **no puede publicar**.
+Piloto: `/tienda/ganga-online-1dtlkl`.
 
 ## Comandos Docker
 
@@ -47,14 +49,6 @@ docker compose run --rm seed
 docker compose run --rm migrate-dev npx prisma migrate dev --name <nombre> --create-only
 ```
 
-## Otras rutas públicas
+El simulador **no envía mensajes**, no crea pedidos ni reserva stock. El chatbot real y la API de WhatsApp están pendientes. Detalle técnico en `docs/SALES_FLOW_ENGINE.md`.
 
-```
-/tienda/[tenantSlug]                         # catálogo
-/tienda/[tenantSlug]/producto/[productSlug]  # ficha
-/tienda/[tenantSlug]/carrito                 # carrito por negocio
-```
-
-El WhatsApp se configura por negocio en `/dashboard/configuracion` (solo OWNER). Los enlaces Click to Chat abren un mensaje; no lo envían ni crean pedidos.
-
-Verificación técnica: `npm run lint`, `npm run typecheck`, `npm run build`. Sin pruebas automatizadas. Más detalle en `docs/`.
+Verificación: `npm run lint`, `npm run typecheck`, `npm run build`. Sin pruebas automatizadas.

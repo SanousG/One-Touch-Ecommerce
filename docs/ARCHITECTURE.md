@@ -43,6 +43,16 @@ La landing pública resuelve tenant por slug, exige versión publicada y product
 
 Reutiliza `Tenant.whatsappPhone` y `whatsappUrl()` de la Fase 2B. El mensaje de landing referencia el producto (SKU o slug) y, si hay varias variantes, pregunta por las opciones; no inventa una selección. Revalida la landing publicada en servidor antes de generar el enlace. No envía mensajes ni crea pedidos/conversaciones.
 
+## Editor de flujos (Fase 3B)
+
+La dependencia `@xyflow/react` 13 se usa solo en componentes cliente. `FlowEditor` mantiene nodos/conexiones en estado local, guarda posiciones y configuración, y serializa un `FlowDiagramDTO` validado en servidor (`normalizeDiagram`). El inspector ocupa 320 px; el lienzo usa el resto y cuenta con zoom, minimapa, cuadrícula y ajuste a la vista.
+
+`SalesFlow` + `SalesFlowVersion` siguen el patrón de landings: `draftVersionId` y `publishedVersionId` separados, publicación transaccional, snapshots inmutables de plantillas y flujos globales, y concurrencia optimista con `revision`.
+
+Validación de publicación: Inicio único con salida, sin conexiones huérfanas, ramas de decisión completas (incluido `fallback`), plantillas válidas, flujos globales publicados del mismo tenant, sin recursión global, salida terminal alcanzable, sin nodos inalcanzables y ciclos solo con salida explícita. Los errores se devuelven con `nodeId`/`edgeId`.
+
+Permisos: OWNER y OPERATOR crean/editan/guardan y simulan; solo OWNER publica. Todo se filtra por `tenantId` en servidor.
+
 ## Relación con fases futuras
 
 Plantilla fija en 3A. La Fase 3B añadirá el editor visual de flujos; las landing seguirán siendo puntos de entrada al producto. El chatbot podrá usar la referencia del mensaje para identificar productos. Inventario y pedidos siguen pendientes.

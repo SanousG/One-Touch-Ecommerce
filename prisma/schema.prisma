@@ -20,6 +20,31 @@ enum ProductStatus {
   ARCHIVED
 }
 
+enum FlowScope {
+  PRODUCT
+  GLOBAL
+}
+
+enum FlowBlockType {
+  START
+  MESSAGE
+  DECISION
+  GLOBAL_FLOW
+  CHECKOUT
+  END
+}
+
+enum TemplateType {
+  MESSAGE
+  CHECKOUT
+}
+
+enum FlowEndMode {
+  FINISH
+  HANDOFF
+  FINISH_AFTER_CONFIRMATION
+}
+
 model User {
   id             String              @id @default(cuid())
   name           String
@@ -103,6 +128,9 @@ model Tenant {
   images      ProductImage[]
   landings    Landing[]
   landingVersions LandingVersion[]
+  flows       SalesFlow[]
+  flowVersions SalesFlowVersion[]
+  templates   MessageTemplate[]
 
   @@map("tenants")
 }
@@ -155,6 +183,7 @@ model Product {
   variants     ProductVariant[]
   images       ProductImage[]
   landings     Landing[]
+  flows        SalesFlow[]
 
   @@unique([tenantId, slug])
   @@index([tenantId, status])
@@ -200,6 +229,7 @@ model ProductImage {
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   landingVersions LandingVersion[]
+  templates       MessageTemplate[]
 
   @@index([tenantId, productId])
   @@index([productId, position])
@@ -255,4 +285,75 @@ model LandingVersion {
   @@unique([landingId, version])
   @@index([tenantId, landingId])
   @@map("landing_versions")
+}
+
+/// Plantilla reutilizable de mensaje. El contenido es texto plano; las variables
+/// dinámicas se resolverán en el futuro motor de ejecución.
+model MessageTemplate {
+  id        String       @id @default(cuid())
+  tenantId  String
+  name      String
+  type      TemplateType
+  content   String
+  imageId   String?
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  image     ProductImage? @relation(fields: [imageId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, type])
+  @@map("message_templates")
+}
+
+/// Flujo de venta por producto o flujo global reutilizable del negocio.
+model SalesFlow {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  productId          String?
+  scope              FlowScope          @default(PRODUCT)
+  name               String
+  slug               String
+  description        String?
+  draftVersionId     String?
+  publishedVersionId String?
+  publishedAt        DateTime?
+  createdById        String
+  updatedById        String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product            Product?           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  versions           SalesFlowVersion[] @relation("FlowVersions")
+  draft              SalesFlowVersion?  @relation("DraftFlowVersion", fields: [draftVersionId], references: [id], onDelete: SetNull)
+  published          SalesFlowVersion?  @relation("PublishedFlowVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, slug])
+  @@unique([tenantId, productId])
+  @@index([tenantId, scope])
+  @@map("sales_flows")
+}
+
+/// Snapshot inmutable de un diagrama. Incluye las plantillas y versiones de
+/// flujos globales utilizadas para que publicar nunca dependa de cambios futuros.
+model SalesFlowVersion {
+  id          String   @id @default(cuid())
+  tenantId    String
+  flowId      String
+  version     Int
+  revision    Int      @default(1)
+  nodes       Json
+  edges       Json
+  templates   Json
+  globalFlows Json
+  createdById String
+  createdAt   DateTime @default(now())
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  flow        SalesFlow  @relation("FlowVersions", fields: [flowId], references: [id], onDelete: Cascade)
+  draftOf     SalesFlow[] @relation("DraftFlowVersion")
+  publishedOf SalesFlow[] @relation("PublishedFlowVersion")
+
+  @@unique([flowId, version])
+  @@index([tenantId, flowId])
+  @@map("sales_flow_versions")
 }

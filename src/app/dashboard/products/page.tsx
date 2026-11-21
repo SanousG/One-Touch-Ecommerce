@@ -1,5 +1,6 @@
 import { ProductsView } from "@/components/catalog/products-view";
 import { listCategories, listProducts, requireCatalogContext } from "@/lib/catalog/service";
+import { getFlowStatusByProduct } from "@/lib/flows/service";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +9,10 @@ type Search = { q?: string; categoryId?: string; visible?: string; status?: stri
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const actor = await requireCatalogContext();
   const filters = await searchParams;
-  const [products, categories] = await Promise.all([
+  const [products, categories, flowStatus] = await Promise.all([
     listProducts(actor, filters),
     listCategories(actor),
+    getFlowStatusByProduct(actor),
   ]);
 
   return (
@@ -19,6 +21,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       categories={categories}
       filters={filters}
       canArchive={actor.role === "OWNER"}
+      flowStatus={flowStatus}
     />
   );
 }

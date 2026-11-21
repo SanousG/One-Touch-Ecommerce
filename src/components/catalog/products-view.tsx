@@ -8,9 +8,16 @@ import type { CategoryDTO, ProductDTO } from "@/lib/catalog/service";
 
 type Filters = { q?: string; categoryId?: string; visible?: string; status?: string };
 
-type Props = { products: ProductDTO[]; categories: CategoryDTO[]; filters: Filters; canArchive: boolean };
+type FlowStatus = { status: "none" | "draft" | "published" | "changes"; flowId?: string };
+type Props = {
+  products: ProductDTO[];
+  categories: CategoryDTO[];
+  filters: Filters;
+  canArchive: boolean;
+  flowStatus: Record<string, FlowStatus>;
+};
 
-export function ProductsView({ products, categories, filters, canArchive }: Props) {
+export function ProductsView({ products, categories, filters, canArchive, flowStatus }: Props) {
   const router = useRouter();
   const [q, setQ] = useState(filters.q ?? "");
   const [categoryId, setCategoryId] = useState(filters.categoryId ?? "");
@@ -19,6 +26,34 @@ export function ProductsView({ products, categories, filters, canArchive }: Prop
   const [showCategory, setShowCategory] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function openFlow(productId: string) {
+    setBusy(productId);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/flows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId }),
+      });
+      const data = (await response.json()) as { flow?: { id: string }; error?: string };
+      if (!response.ok || !data.flow) {
+        if (response.status === 409) {
+          const list = await fetch("/api/admin/flows?scope=PRODUCT");
+          const payload = (await list.json()) as { flows: { id: string; productId: string | null }[] };
+          const existing = payload.flows.find((item) => item.productId === productId);
+          if (existing) { router.push(`/dashboard/flows/${existing.id}`); return; }
+        }
+        setError(data.error ?? "No se pudo abrir el flujo");
+        return;
+      }
+      router.push(`/dashboard/flows/${data.flow.id}`);
+    } catch {
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   function applyFilters(next: Partial<Filters>) {
     const params = new URLSearchParams();
@@ -143,13 +178,14 @@ export function ProductsView({ products, categories, filters, canArchive }: Prop
                 <th className="px-4 py-3 text-right font-semibold">Precio</th>
                 <th className="px-4 py-3 font-semibold">Visibilidad</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
+                <th className="px-4 py-3 font-semibold">Flujo</th>
                 <th className="px-5 py-3 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center">
+                  <td colSpan={7} className="px-5 py-12 text-center">
                     <p className="font-semibold">No hay productos para mostrar</p>
                     <p className="mt-1 text-xs text-muted">Crea el primero con el botón «Nuevo producto».</p>
                   </td>
@@ -206,11 +242,26 @@ export function ProductsView({ products, categories, filters, canArchive }: Prop
                         {product.status === "ACTIVE" ? "Activo" : product.status === "ARCHIVED" ? "Archivado" : "Borrador"}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const flow = flowStatus[product.id];
+                        if (!flow || flow.status === "none") return <span className="text-xs text-muted">Sin flujo</span>;
+                        const labels = { draft: "Borrador", published: "Publicado", changes: "Cambios sin publicar" };
+                        return <span className={`rounded-full px-2 py-0.5 text-[11px] ${flow.status === "published" ? "bg-emerald-50 text-emerald-700" : flow.status === "changes" ? "bg-amber-50 text-amber-700" : "bg-surface-soft text-muted"}`}>{labels[flow.status]}</span>;
+                      })()}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <span title="Flujo de venta: no disponible en esta fase" className="rounded bg-background px-2 py-1 text-[10px] text-muted">
-                          Flujo: pronto
-                        </span>
+                        <button
+                          type="button"
+                          disabled={busy === product.id}
+                          onClick={() => openFlow(product.id)}
+                          title={flowStatus[product.id]?.flowId ? "Abrir flujo" : "Crear flujo"}
+                          className="inline-flex items-center gap-1 rounded-lg bg-primary-soft px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
+                        >
+                          <Icon name="split" size={14} />
+                          {flowStatus[product.id]?.flowId ? "Abrir flujo" : "Crear flujo"}
+                        </button>
                         {canArchive ? (
                           <button
                             type="button"
