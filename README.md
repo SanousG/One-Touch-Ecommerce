@@ -1,60 +1,60 @@
 # One-Touch-Ecommerce
 
-Plataforma SaaS multi-tenant con panel administrativo y tienda pública por negocio. Todo se ejecuta en Docker Desktop; no hace falta Node.js en Windows ni `npm run dev`.
+Plataforma SaaS multi-tenant: panel administrativo, catálogo, tienda pública, carritos por negocio y **landings de producto**. Todo se ejecuta en Docker Desktop sin `npm run dev`.
 
 ## Arranque
 
 ```powershell
 cd "C:\Users\Yeltsin\Documents\SanousG\One-Touch-Ecommerce"
-Copy-Item .env.example .env   # solo la primera vez; completar valores
+Copy-Item .env.example .env   # solo la primera vez
 docker compose up -d --build
 docker compose ps
 ```
 
-Panel: http://localhost:3000 (inicia sesión con `SEED_USER_EMAIL` / `SEED_USER_PASSWORD`; crea el usuario con `docker compose run --rm seed`).
+Panel: http://localhost:3000/login — usa `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` de `.env` (crea el usuario con `docker compose run --rm seed`).
 
-Tiendas públicas (sin login):
+## Landings de producto
+
+Administración:
 
 ```
-/tienda/[tenantSlug]
-/tienda/[tenantSlug]/producto/[productSlug]
-/tienda/[tenantSlug]/carrito
+/dashboard/landings              # listado y creación
+/dashboard/landings/[id]         # editor: contenido + vista previa en vivo
+/dashboard/landings/[id]/preview # vista previa privada (noindex, no-store)
 ```
 
-Los slugs se generan al crear el negocio; en el piloto: `/tienda/ganga-online-1dtlkl` y `/tienda/negocio-b-local-5shfty`.
+Flujo: crear landing desde un producto existente → guardar borrador → previsualizar → publicar. El borrador y la versión pública son snapshots independientes: editar el borrador **no** cambia la página pública hasta publicar.
+
+Pública (sin login), en piloto:
+
+```
+http://localhost:3000/tienda/ganga-online-1dtlkl/landing/barra-led-recargable
+```
+
+Formato general: `/tienda/[tenantSlug]/landing/[landingSlug]`. Devuelve 404 si no hay versión publicada, si el producto está oculto/archivado o si el tenant no corresponde.
+
+Permisos: OWNER crea, edita, guarda y publica. OPERATOR crea, edita y guarda borradores, pero **no puede publicar**.
 
 ## Comandos Docker
 
 ```powershell
-docker compose up -d --build      # reconstruir tras cambios de código
-docker compose ps
+docker compose up -d --build
 docker compose logs -f app
 docker compose stop
 docker compose start
-docker compose run --rm migrate   # reaplicar migraciones existentes
-docker compose run --rm seed      # usuario local (idempotente)
+docker compose run --rm migrate
+docker compose run --rm seed
 docker compose run --rm migrate-dev npx prisma migrate dev --name <nombre> --create-only
 ```
 
-## WhatsApp por negocio
+## Otras rutas públicas
 
-En `/dashboard/configuracion` el **OWNER** define el número en formato internacional (`+51999999999`). Los OPERATOR pueden verlo pero no editarlo. Si no hay número, la tienda muestra claramente que la consulta no está disponible y los botones se desactivan.
-
-Los enlaces usan `https://wa.me/<digits>?text=...` con el mensaje codificado. Se abren en una pestaña nueva; **no envían el mensaje automáticamente**, no crean pedidos ni reservan stock.
-
-## Catálogo y tienda
-
-- Administración: `/dashboard/products` y `/dashboard/products/[id]`.
-- Catálogo público: solo productos `ACTIVE` y `storeVisible=true` del negocio del slug. Nunca depende de la sesión administrativa ni del `activeTenantId`.
-- Carrito: `localStorage` con clave `one-touch:cart:<tenantId>`; guarda solo `variantId` y cantidad. Los precios se revalidan siempre en el servidor.
-- Imágenes públicas: `/api/images/[imageId]/file` con `Cache-Control: no-store`; solo sirve imágenes de productos activos y visibles.
-
-## Verificación técnica
-
-```powershell
-npm run lint
-npm run typecheck
-npm run build
+```
+/tienda/[tenantSlug]                         # catálogo
+/tienda/[tenantSlug]/producto/[productSlug]  # ficha
+/tienda/[tenantSlug]/carrito                 # carrito por negocio
 ```
 
-Sin suites de pruebas automatizadas. Más detalle en `docs/`.
+El WhatsApp se configura por negocio en `/dashboard/configuracion` (solo OWNER). Los enlaces Click to Chat abren un mensaje; no lo envían ni crean pedidos.
+
+Verificación técnica: `npm run lint`, `npm run typecheck`, `npm run build`. Sin pruebas automatizadas. Más detalle en `docs/`.

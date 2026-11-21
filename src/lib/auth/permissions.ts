@@ -13,3 +13,12 @@ export function assertCatalogManager(role: string) {
 export function assertCatalogOwner(role: string) {
   return assertRole({ role }, CATALOG_OWNER_ROLES);
 }
+
+/** Landings: OWNER publica; OWNER y OPERATOR crean/editan/guardan borradores. */
+export function assertLandingManager(role: string) {
+  return assertRole({ role }, CATALOG_MANAGE_ROLES);
+}
+
+export function assertLandingPublisher(role: string) {
+  return assertRole({ role }, CATALOG_OWNER_ROLES);
+}

@@ -42,7 +42,10 @@ export type IconName =
   | "bag"
   | "minus"
   | "arrowLeft"
-  | "whatsapp";
+  | "whatsapp"
+  | "rocket"
+  | "link"
+  | "copy";
 
 const paths: Record<IconName, React.ReactNode> = {
   hub: <><circle cx="12" cy="12" r="3" /><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 6.5 10 10M17 6.5 14 10M7 17.5 10 14" /></>,
@@ -87,6 +90,9 @@ const paths: Record<IconName, React.ReactNode> = {
   minus: <path d="M5 12h14" />,
   arrowLeft: <path d="M19 12H5m6 6-6-6 6-6" />,
   whatsapp: <path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2Zm5.7 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.2-4-1-3.3-1.4-5.4-4.7-5.6-4.9-.1-.2-1.3-1.8-1.3-3.4s.8-2.4 1.1-2.7c.3-.3.7-.4.9-.4h.6c.2 0 .5 0 .8.6.3.7.9 2.3 1 2.4.1.2.1.4 0 .7-.1.3-.2.4-.4.6-.2.2-.4.5-.6.7-.2.2-.4.4-.2.8.2.4 1.1 1.8 2.3 2.8 1.6 1.4 2.9 1.8 3.3 2 .4.2.6.2.9-.1.3-.3 1-1.2 1.3-1.6.3-.4.5-.3.9-.2.4.1 2.3 1.1 2.7 1.3.4.2.7.3.8.5.1.2.1.9-.2 1.6Z" />,
+  rocket: <><path d="M13 4c4-1 7 2 6 6-1 5-5 8-9 9l-4-4c1-4 4-8 7-11Z" /><circle cx="14.5" cy="9.5" r="1.5" /><path d="m8 16-3 3M6 13l-3 1 3 3 2-1" /></>,
+  link: <><path d="M10 13a4 4 0 0 0 6 .5l2-2a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 11a4 4 0 0 0-6-.5l-2 2A4 4 0 0 0 11.7 18l1-1" /></>,
+  copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
 };
 
 type IconProps = SVGProps<SVGSVGElement> & { name: IconName; size?: number };

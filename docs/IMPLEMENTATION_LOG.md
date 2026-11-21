@@ -2,150 +2,136 @@
 
 ## Fases anteriores (resumen)
 
-Fase 1: multi-tenancy, Better Auth y panel. Fase 1.1: Dockerización y retirada de pruebas. Fase 2A: catálogo administrativo, variantes, imágenes y migraciones. Sin frameworks de testing.
+Fase 1: base multi-tenant y Better Auth. Fase 1.1: Docker. Fase 2A: catálogo administrativo. Fase 2B: tienda pública, fichas, carrito y WhatsApp. Sin frameworks de testing.
 
-## Fase 2B — Tienda pública, ficha y carrito
+## Fase 3A — Landings de productos
 
-### A. Resumen de implementación
+### A. Resultado general y estado de implementación
 
-Se implementó la tienda pública por negocio con catálogo, fichas de producto, carrito por tenant y consultas Click to Chat por WhatsApp. Los datos provienen del catálogo real de PostgreSQL; las tiendas no requieren login y nunca usan la sesión administrativa. El carrito vive en localStorage separado por negocio y se revalida contra el servidor antes de mostrar precios o generar mensajes. No se crearon pedidos, reservas ni conversaciones.
+**Completo.** Un negocio puede crear, editar, previsualizar y publicar una landing de producto sin afectar a otros negocios. La edición del borrador no modifica la página pública; los cambios se publican de forma explícita y transaccional. El cliente puede consultar el producto por WhatsApp desde la landing. No se implementó el editor visual de flujos ni ninguna funcionalidad de fases posteriores.
 
-### B. Archivos creados y modificados
+### B. Archivos creados, modificados y eliminados
 
-**Creados (servidor)**
+**Creados**
 
-- `src/lib/store/service.ts`
-- `src/lib/store/cart.ts`
-- `prisma/migrations/20261121020655_tenant_whatsapp/migration.sql`
-- `src/app/api/store/[tenantSlug]/cart/validate/route.ts`
-- `src/app/api/store/[tenantSlug]/whatsapp/product/route.ts`
-- `src/app/api/store/[tenantSlug]/whatsapp/cart/route.ts`
-- `src/app/api/admin/tenants/whatsapp/route.ts`
-- `src/app/tienda/[tenantSlug]/layout.tsx`
-- `src/app/tienda/[tenantSlug]/page.tsx`
-- `src/app/tienda/[tenantSlug]/producto/[productSlug]/page.tsx`
-- `src/app/tienda/[tenantSlug]/carrito/page.tsx`
-- `src/app/dashboard/configuracion/page.tsx`
-
-**Creados (cliente)**
-
-- `src/components/store/store-header.tsx`
-- `src/components/store/store-footer.tsx`
-- `src/components/store/store-catalog.tsx`
-- `src/components/store/product-detail.tsx`
-- `src/components/store/cart-view.tsx`
-- `src/components/tenants/whatsapp-settings.tsx`
+- `prisma/migrations/20261121032613_landings/migration.sql`.
+- `src/lib/landings/service.ts`, `src/lib/landings/http.ts`.
+- `src/app/api/admin/landings/route.ts`
+- `src/app/api/admin/landings/[id]/route.ts`
+- `src/app/api/admin/landings/[id]/publish/route.ts`
+- `src/app/api/store/[tenantSlug]/landing/[landingSlug]/whatsapp/route.ts`
+- `src/app/dashboard/landings/page.tsx`
+- `src/app/dashboard/landings/[id]/page.tsx`
+- `src/app/dashboard/landings/[id]/preview/page.tsx`
+- `src/app/tienda/[tenantSlug]/landing/[landingSlug]/page.tsx`
+- `src/components/landings/landing-view.tsx`
+- `src/components/landings/landing-whatsapp-button.tsx`
+- `src/components/landings/landing-list.tsx`
+- `src/components/landings/landing-editor.tsx`
 
 **Modificados**
 
-- `prisma/schema.prisma`: `Tenant.whatsappPhone String?`.
-- `src/lib/tenants/service.ts`: `getActiveTenantSettings()`, `normalizeWhatsappPhone()`, `updateTenantWhatsapp()`.
-- `src/components/dashboard/sidebar.tsx`: “Configuración” activa.
-- `src/components/ui/icon.tsx`: iconos `bag`, `minus`, `arrowLeft`, `whatsapp`.
-- `src/app/api/images/[imageId]/file/route.ts`: `Cache-Control: no-store`.
+- `prisma/schema.prisma`: modelos `Landing` y `LandingVersion`, relaciones en `Tenant`, `Product` y `ProductImage`.
+- `src/lib/catalog/service.ts`: `ConflictError` y bloqueo de borrado de imágenes referenciadas por landings.
+- `src/lib/catalog/http.ts`: mapeo de 409.
+- `src/lib/auth/permissions.ts`: `assertLandingManager`, `assertLandingPublisher`.
+- `src/components/dashboard/sidebar.tsx`: enlace activo a `/dashboard/landings`.
+- `src/components/ui/icon.tsx`: iconos `rocket`, `link`, `copy`.
+- `next.config.ts`: cabeceras `no-store` y `noindex` para `/dashboard/:path*`.
 - `README.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, este archivo.
 
-`opencode.json` y MCP de Stitch intactos. No se borraron volúmenes ni datos.
+**Eliminados**: ninguno. No se borraron volúmenes ni datos. MCP de Stitch intacto.
 
-### C. Rutas públicas implementadas
+### C. Modelo de datos y migraciones
 
-| Ruta | Función |
-|---|---|
-| `/tienda/ganga-online-1dtlkl` | Catálogo público A |
-| `/tienda/negocio-b-local-5shfty` | Catálogo público B |
-| `/tienda/[tenantSlug]/producto/[productSlug]` | Ficha pública |
-| `/tienda/[tenantSlug]/carrito` | Carrito por negocio |
+`Landing`: `tenantId`, `productId`, `slug`, `draftVersionId`, `publishedVersionId`, `publishedAt`, `createdById`, `updatedById`, timestamps; únicos `(tenantId, slug)` y `(tenantId, productId)`.
+`LandingVersion`: `tenantId`, `landingId`, `version`, `headline`, `summary`, `heroImageId`, `benefits` (Json), `faqs` (Json), `revision`, `createdById`; único `(landingId, version)`; `heroImageId` con `onDelete: Restrict`.
 
-API pública: `/api/store/[tenantSlug]/cart/validate`, `/api/store/[tenantSlug]/whatsapp/product` y `/api/store/[tenantSlug]/whatsapp/cart`.
+Migración `20261121032613_landings`: «4 migrations found», «Applying migration», «All migrations have been successfully applied». No se usó `db push` ni se reemplazaron migraciones.
 
-### D. Funcionamiento del catálogo y fichas
+### D. Funcionamiento del administrador de landings
 
-Búsqueda por nombre, filtros por categoría, tarjetas con portada del volumen persistente, precio representativo («S/ …» o «Desde S/ …»), accesos a ficha y carrito y estado vacío. Solo se listan productos `ACTIVE` y `storeVisible=true` del tenant del slug; los productos DRAFT y ARCHIVED quedaron fuera en la validación real.
+`/dashboard/landings` lista producto, slug y estado (Sin publicar / Cambios sin publicar / Publicada), permite crear desde un producto real y copiar el enlace público. `/dashboard/landings/[id]` muestra el producto vinculado en solo lectura (precio y variantes del catálogo), el formulario de contenido y una vista previa en vivo con la misma plantilla pública.
 
-La ficha muestra galería, descripción real, variantes activas, cantidad (1–99), botones de carrito y WhatsApp. Con una sola variante se simplifica el selector. No se muestra disponibilidad de stock ni características inventadas; se aclara que disponibilidad/envío se confirman por WhatsApp.
+### E. Sistema de borradores y versiones publicadas
 
-### E. Funcionamiento del carrito
+Guardar borrador no toca la pública. Si el borrador editado es la versión publicada, se crea un nuevo snapshot. Publicar actualiza el puntero en transacción. `revision` + `expectedRevision` devuelven 409 ante ediciones concurrentes. En la validación real se generaron 3 versiones: v1 borrador inicial, v2 publicada y v3 borrador posterior; la pública siguió mostrando v2 hasta la republicación.
 
-Clave `one-touch:cart:<tenantId>`; guarda solo `variantId` y cantidad. Al cargar, `POST /cart/validate` devuelve líneas con nombres, SKU, precios vigentes, totales y subtotal en `DECIMAL`; los artículos inválidos se quitan y se avisa al cliente. Cantidades 0, negativas y decimales se rechazan. Se verificó por separado que un carrito del negocio A no aparece en B y que la información persiste entre “recargas” simuladas.
+### F. Funcionamiento de la landing pública
 
-### F. Integración básica con WhatsApp
+Ruta `/tienda/[tenantSlug]/landing/[landingSlug]`. Sin login. 404 si no hay versión publicada, si el tenant/slug no coincide o si el producto no está `ACTIVE` y `storeVisible`. Muestra marca, portada, titular, descripción, precio vigente, beneficios, FAQ, WhatsApp y enlace a la tienda. Metadatos de título y descripción generados desde la versión publicada.
 
-`Tenant.whatsappPhone` se configura en `/dashboard/configuracion`, solo OWNER (validado con ForbiddenError para OPERATOR). El teléfono se normaliza a E.164.
+### G. Integración con productos, imágenes, precios y WhatsApp
 
-Mensaje de ficha: producto, variante, cantidad, precio referencial por unidad y SKU; no incluye el carrito. Mensaje de carrito: líneas numeradas con variante y cantidad, y subtotal referencial calculado en servidor. Ambos usan `wa.me/<digits>?text=<encode>`. Se validó el contenido decodificado de ambos mensajes. Sin teléfono, los botones se desactivan y aparece un aviso; la API devuelve 409.
+Contenido vinculado al producto real; precio y variantes nunca se duplican. La fotografía principal se elige entre las imágenes del producto. Cambiar el precio del producto cambió el precio mostrado en la landing (77.77 en la comprobación). Una imagen referenciada no se puede eliminar (409). El botón de WhatsApp reutiliza el número del negocio y genera un mensaje con referencia de producto; sin teléfono aparece desactivado y la API responde 409.
 
-Abrir WhatsApp no envía el mensaje, no crea pedidos, no reserva stock y no registra pagos.
+### H. Seguridad, permisos y aislamiento multi-tenant
 
-### G. Seguridad y aislamiento multi-tenant
+OWNER crea/edita/guarda/publica; OPERATOR crea/edita/guarda pero no publica (403 verificado). El usuario B no pudo listar, consultar, modificar ni publicar la landing de A (404), ni ver su preview. El borrador no se expone sin sesión (401) ni mediante endpoints JSON. Preview responde `no-store, private` y `noindex, nofollow`. No se permiten etiquetas `<`/`>` en el contenido.
 
-- La identidad pública se resuelve por slug en servidor; un slug inexistente da 404.
-- Todas las consultas de tienda incluyen `tenantId`, `ACTIVE` y `storeVisible`.
-- Variantes, categorías, imágenes y carrito se validan contra el mismo tenant.
-- Mensajes generados en servidor con datos vigentes.
-- Imagen pública revalidada en cada petición (`no-store`); al ocultar un producto pasó a 404.
-- Sin sesión administrativa ni `activeTenantId` en ninguna ruta pública.
-
-### H. Diseños de Stitch utilizados
+### I. Diseños de Stitch utilizados y diferencias
 
 Proyecto `projects/1619124812250481064`:
 
-- Catálogo: `screens/7bfbd07fc1f047cb9853ca8f3d5a4bfe`.
-- Ficha: `screens/4f2a579343394d369953c3190022349e`.
-- Carrito: `screens/1653e502de0441bfbaabdf3cf12eaa50`.
+- Editor: `screens/e1f3cbf73ce04cfe9db20ad656cd1fa4`.
+- Pública: `screens/7e9e9371db934b4ba3f468514a03675e`.
 
-Se conservaron cabecera con marca, píldoras de categoría, rejilla de tarjetas, galería protagonista, selector de variantes/cantidad, resumen lateral y CTA verde de WhatsApp. Diferencias: sin badges de stock/descuentos ni importes ilustrativos; precios reales; secciones no implementadas marcadas como no disponibles; verde reservado a WhatsApp; paleta e Inter de la Fase 1. No se copió HTML.
+Se conservaron el editor de dos columnas con vista previa en vivo, la cabecera de acciones, las tarjetas de producto/contenido y la landing con hero, beneficios, FAQ y CTA final. Diferencias: plantilla fija (sin drag & drop), sin stock/despacho/garantías inventados, colores e Inter de la Fase 1, acento índigo y verde solo para WhatsApp, y datos reales del catálogo. No se copió HTML literal.
 
-### I. Migraciones y cambios de modelos
+### J. Verificaciones ejecutadas y resultados reales
 
-`20261121020655_tenant_whatsapp` añade `whatsappPhone` a `tenants`, sin valor por defecto y compatible con datos existentes. `migrate` aplicó 3 migraciones («3 migrations found», «Applying migration 20261121020655_tenant_whatsapp», «All migrations have been successfully applied»). No se usó `db push` ni se borraron datos. `_prisma_migrations` contiene las 3 migraciones.
-
-### J. Validaciones manuales realizadas y sus resultados
-
-| Validación | Resultado |
+| Verificación | Resultado |
 |---|---|
 | `npm run lint` | ✅ 0 errores, 0 advertencias |
 | `npm run typecheck` | ✅ sin errores |
-| `npm run build` | ✅ 27 rutas, sin errores |
+| `npm run build` | ✅ 33 rutas, sin errores |
 | `docker compose up -d --build` | ✅ migración aplicada, `app` healthy |
-| Tienda A y B sin login | ✅ 200; A con productos, B con estado vacío inicial |
-| Slug inexistente | ✅ 404 |
-| DRAFT y ARCHIVED excluidos | ✅ no aparecen en HTML público |
-| Filtros/búsqueda y categorías | ✅ componentes y rutas con query verificadas |
-| Ficha A y B | ✅ 200; galería, variantes y cantidad presentes |
-| Variante + cantidad | ✅ mensaje y carrito usan la variante elegida |
-| Agregar/actualizar/quitar artículos y vaciar | ✅ módulo de carrito verificado con localStorage simulado |
-| Persistencia del carrito entre cargas | ✅ mismo contenido tras nueva carga simulada |
-| Separación de carritos A/B | ✅ clave distinta; el otro negocio devuelve [] |
-| Mensaje WhatsApp de un producto | ✅ 200, `wa.me/51987654321`, nombre/variante/cantidad/SKU en el texto |
-| Mensaje WhatsApp del carrito | ✅ 200, 2 líneas, subtotal referencial 279.70 calculado en servidor |
-| Variante inactiva | ✅ rechazada en validación (0 líneas) y en WhatsApp (409) |
-| Sin WhatsApp configurado | ✅ aviso en ficha/carrito y API 409 |
-| OWNER configura teléfono | ✅ 200; OPERATOR rechazado con ForbiddenError |
-| Cambio de precio | ✅ el carrito reflejó 95.50 sin confiar en el navegador |
-| Cambio de visibilidad | ✅ ficha 404, carrito sin líneas y imagen 404; al restaurar, todo 200 |
-| Imagen pública | ✅ 200 con `Cache-Control: no-store` |
-| Sin tabla de pedidos | ✅ `information_schema` solo muestra las 11 tablas previas |
-| Persistencia tras rebuild | ✅ productos, teléfonos e imagen conservados |
+| Crear landing desde producto real | ✅ 201 |
+| Sin publicar → URL pública | ✅ 404 |
+| Vista previa privada con sesión | ✅ 200 con borrador y aviso |
+| Vista previa sin sesión | ✅ 307 a `/login` |
+| Guardar borrador | ✅ 200, revisión 2 |
+| Pública sigue 404 tras guardar | ✅ |
+| Publicar | ✅ 200, `isPublished=true` |
+| Acceso público sin login | ✅ 200 con titular, beneficios, FAQ y WhatsApp |
+| Editar borrador | ✅ pública mantiene versión anterior; preview muestra la nueva |
+| Republicar | ✅ pública muestra el nuevo titular |
+| Costo de WhatsApp desde landing | ✅ 200 con `wa.me` y referencia `BLR30K` |
+| Cambio de precio del producto | ✅ landing mostró 77.77; restaurado |
+| Ocultar producto | ✅ landing 404; restaurada 200 |
+| Borrar imagen referenciada | ✅ 409 |
+| Borrador sin sesión vía API | ✅ 401 |
+| Cabeceras de preview | ✅ `no-store, private` y `noindex, nofollow` |
+| Metadatos públicos | ✅ `<title>` con titular y negocio |
+| Aislamiento B sobre A | ✅ listado vacío; GET/PATCH/publicar/preview → 404 |
+| Permisos OWNER/OPERATOR | ✅ OPERATOR publica → 403; guarda borrador → 200 |
+| Concurrencia optimista | ✅ revisión incorrecta → 409 |
+| Unicidad landing por producto | ✅ segundo intento → 409 |
+| Producto ajeno al crear landing | ✅ rechazado (LandingNotFoundError) |
 | Logs de `app` | ✅ sin errores críticos |
+| Persistencia tras rebuild | ✅ landing pública, versión publicada, borrador, imagen y 3 versiones conservados |
 
-Incidencias menores resueltas: un script inicial eligió un producto DRAFT recién creado en vez del publicado; una comprobación asumió erróneamente que el usuario B era OPERATOR (es OWNER); un intento de limpiar el teléfono de B devolvió 500 porque el login había sido limitado por rate limit, por lo que se añadió mapeo explícito de 401 en el endpoint; el stub de localStorage usado en la verificación no tenía `dispatchEvent`.
+No se crearon pruebas automatizadas ni archivos temporales de test en el repositorio. La interacción visual completa en navegador no se ejecutó; se validó el HTML renderizado y los flujos HTTP, por lo que la comprobación visual se reporta como **pendiente**.
 
 ### K. Estado de Docker Compose
 
-`app` y `db` Up (healthy), `migrate` Exited correctamente, `seed`/`migrate-dev` bajo perfil `tools`. PostgreSQL sin puerto publicado. Sin volúmenes borrados.
+`app` y `db` Up (healthy), `migrate` Exited correctamente, `seed`/`migrate-dev` bajo perfil `tools`. Sin volúmenes borrados ni contenedores de otros proyectos modificados.
 
 ### L. Problemas encontrados y soluciones
 
-Ver J. Además, el endpoint de WhatsApp de carrito devuelve 409 con `issues` y el estado revalidado cuando algún artículo deja de estar disponible, para que el cliente revise antes de abrir el chat.
+1. El editor recibía `ProductDTO` administrativo y la vista compartida espera `StoreProductDTO`: se añadió una conversión explícita en el editor para no duplicar la vista.
+2. Clase dinámica de Tailwind en la rejilla de beneficios: se sustituyó por `md:grid-cols-3` estática.
+3. Las comprobaciones de permisos con OPERATOR se realizaron cambiando temporalmente el rol en BD y restaurándolo; no quedaron cambios de rol.
+4. Consultas `psql` con identificadores camelCase requieren comillas que PowerShell intercepta; se verificó el estado usando columnas sin comillas y las APIs HTTP.
 
-### M. Decisiones técnicas y recomendaciones
+### M. Decisiones arquitectónicas y propuestas de mejora
 
-Ver `docs/DECISIONS.md`. Se priorizó revalidación server-side, separación por tenant y mensajería sin estado. Recomendado: object storage/CDN, dominios personalizados, inventario real y, más adelante, usar el SKU de estos mensajes como contexto del chatbot.
+Ver `docs/DECISIONS.md`. Plantilla fija, snapshots separados, FK restrictiva para imágenes, publicación transaccional y permisos mínimos. Propuesto: campañas múltiples por producto, publicación programada, auditoría y CDN de imágenes.
 
 ### N. Estado de Git
 
-Commit de Fase 2B con mensaje «Fase 2B: tienda publica, ficha y carrito». Sin pruebas automatizadas añadidas. `.env`, volúmenes e imágenes fuera del repositorio.
+Commit de Fase 3A con mensaje «Fase 3A: landings de productos y publicacion». Sin frameworks de testing. `.env`, volúmenes e imágenes fuera del repositorio.
 
-### O. Pendientes de la siguiente fase
+### O. Pendientes para la Fase 3B
 
-Pedidos/checkout, inventario con reservas y movimientos, chatbot/API de WhatsApp, flujo visual, y publicación/landings. No se implementaron aquí.
+Constructor visual de flujos con diagramas, nodos y conexiones; gestión de flujos por producto/landing; y su integración futura con el chatbot. No se implementaron aquí.

@@ -28,6 +28,13 @@ export class ValidationError extends Error {
   }
 }
 
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
 export type CatalogActor = { userId: string; tenantId: string; role: "OWNER" | "OPERATOR" };
 
 export type VariantDTO = {
@@ -547,6 +554,10 @@ export async function removeProductImage(
   imageId: string,
 ): Promise<ProductDTO> {
   const image = await findOwnedImage(actor, productId, imageId);
+  const usedByLanding = await getPrisma().landingVersion.count({ where: { heroImageId: imageId } });
+  if (usedByLanding > 0) {
+    throw new ConflictError("La imagen está siendo usada por una landing y no se puede eliminar");
+  }
   await getPrisma().productImage.delete({ where: { id: imageId } });
   deleteStoredImage(image.storageKey);
 

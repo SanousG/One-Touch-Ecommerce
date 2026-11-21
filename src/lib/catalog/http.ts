@@ -1,6 +1,6 @@
 import { ForbiddenError, UnauthorizedError } from "../auth/guards";
 import { ImageValidationError } from "../storage/product-images";
-import { NotFoundError, ValidationError } from "./service";
+import { ConflictError, NotFoundError, ValidationError } from "./service";
 
 export function catalogErrorResponse(error: unknown): Response {
   if (error instanceof UnauthorizedError) {
@@ -11,6 +11,9 @@ export function catalogErrorResponse(error: unknown): Response {
   }
   if (error instanceof NotFoundError) {
     return Response.json({ error: error.message }, { status: 404 });
+  }
+  if (error instanceof ConflictError) {
+    return Response.json({ error: error.message }, { status: 409 });
   }
   if (error instanceof ValidationError || error instanceof ImageValidationError) {
     return Response.json({ error: error.message }, { status: 400 });

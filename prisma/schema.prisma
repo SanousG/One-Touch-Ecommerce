@@ -101,6 +101,8 @@ model Tenant {
   products    Product[]
   variants    ProductVariant[]
   images      ProductImage[]
+  landings    Landing[]
+  landingVersions LandingVersion[]
 
   @@map("tenants")
 }
@@ -152,6 +154,7 @@ model Product {
   category     Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   variants     ProductVariant[]
   images       ProductImage[]
+  landings     Landing[]
 
   @@unique([tenantId, slug])
   @@index([tenantId, status])
@@ -196,8 +199,60 @@ model ProductImage {
   updatedAt  DateTime @updatedAt
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  landingVersions LandingVersion[]
 
   @@index([tenantId, productId])
   @@index([productId, position])
   @@map("product_images")
+}
+
+/// Una landing por producto y negocio. El borrador y la versión publicada son
+/// snapshots independientes para no alterar la página pública mientras se edita.
+model Landing {
+  id                 String           @id @default(cuid())
+  tenantId           String
+  productId          String
+  slug               String
+  draftVersionId     String?
+  publishedVersionId String?
+  publishedAt        DateTime?
+  createdById        String
+  updatedById        String
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product            Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  versions           LandingVersion[] @relation("LandingVersions")
+  draft              LandingVersion?  @relation("DraftVersion", fields: [draftVersionId], references: [id], onDelete: SetNull)
+  published          LandingVersion?  @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, slug])
+  @@unique([tenantId, productId])
+  @@index([tenantId])
+  @@map("landings")
+}
+
+/// Snapshot inmutable de contenido. `revision` permite concurrencia optimista.
+model LandingVersion {
+  id          String   @id @default(cuid())
+  tenantId    String
+  landingId   String
+  version     Int
+  headline    String
+  summary     String
+  heroImageId String?
+  benefits    Json
+  faqs        Json
+  revision    Int      @default(1)
+  createdById String
+  createdAt   DateTime @default(now())
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  landing     Landing       @relation("LandingVersions", fields: [landingId], references: [id], onDelete: Cascade)
+  heroImage   ProductImage? @relation(fields: [heroImageId], references: [id], onDelete: Restrict)
+  draftOf     Landing[]     @relation("DraftVersion")
+  publishedOf Landing[]     @relation("PublishedVersion")
+
+  @@unique([landingId, version])
+  @@index([tenantId, landingId])
+  @@map("landing_versions")
 }
