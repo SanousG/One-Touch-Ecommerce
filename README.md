@@ -1,6 +1,6 @@
 # One-Touch-Ecommerce
 
-Plataforma SaaS multi-tenant: autenticación, negocios aislados, panel administrativo y **catálogo de productos** (Fase 2A). Todo se ejecuta en Docker Desktop; no hace falta Node.js en Windows ni `npm run dev`.
+Plataforma SaaS multi-tenant con panel administrativo y tienda pública por negocio. Todo se ejecuta en Docker Desktop; no hace falta Node.js en Windows ni `npm run dev`.
 
 ## Arranque
 
@@ -11,11 +11,19 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Abre **http://localhost:3000** e inicia sesión con `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` de `.env` (crea el usuario con `docker compose run --rm seed` si aún no existe).
+Panel: http://localhost:3000 (inicia sesión con `SEED_USER_EMAIL` / `SEED_USER_PASSWORD`; crea el usuario con `docker compose run --rm seed`).
 
-En local se usa `AUTH_COOKIES_SECURE=false` para que las cookies funcionen por HTTP. En producción: HTTPS y sin esa variable.
+Tiendas públicas (sin login):
 
-## Comandos
+```
+/tienda/[tenantSlug]
+/tienda/[tenantSlug]/producto/[productSlug]
+/tienda/[tenantSlug]/carrito
+```
+
+Los slugs se generan al crear el negocio; en el piloto: `/tienda/ganga-online-1dtlkl` y `/tienda/negocio-b-local-5shfty`.
+
+## Comandos Docker
 
 ```powershell
 docker compose up -d --build      # reconstruir tras cambios de código
@@ -24,42 +32,22 @@ docker compose logs -f app
 docker compose stop
 docker compose start
 docker compose run --rm migrate   # reaplicar migraciones existentes
-docker compose run --rm seed      # crear usuario/negocio local (idempotente)
-```
-
-Para generar una migración nueva durante el desarrollo (bind mount del host):
-
-```powershell
+docker compose run --rm seed      # usuario local (idempotente)
 docker compose run --rm migrate-dev npx prisma migrate dev --name <nombre> --create-only
-docker compose up -d --build
 ```
 
-## Catálogo (Fase 2A)
+## WhatsApp por negocio
 
-Rutas: `/dashboard/products` (listado) y `/dashboard/products/[id]` (edición).
+En `/dashboard/configuracion` el **OWNER** define el número en formato internacional (`+51999999999`). Los OPERATOR pueden verlo pero no editarlo. Si no hay número, la tienda muestra claramente que la consulta no está disponible y los botones se desactivan.
 
-- Productos por negocio con slug único por tenant, categoría, descripción, estado `DRAFT`/`ACTIVE`/`ARCHIVED` y visibilidad en tienda.
-- Variantes con SKU único por negocio, precio `DECIMAL(12,2)` en soles y campos de stock reservados para el inventario futuro.
-- Categorías por negocio.
-- Galería de imágenes: subida (JPEG/PNG/WebP, máx. 5 MB con validación de cabecera), portada, reordenado y eliminación.
-- Búsqueda por nombre o SKU y filtros por categoría y visibilidad.
-- No hay eliminación física de productos; solo archivado (reservado a `OWNER`).
+Los enlaces usan `https://wa.me/<digits>?text=...` con el mensaje codificado. Se abren en una pestaña nueva; **no envían el mensaje automáticamente**, no crean pedidos ni reservan stock.
 
-Permisos iniciales: `OWNER` y `OPERATOR` pueden administrar productos, variantes, imágenes, categorías y visibilidad. Solo `OWNER` puede archivar/restaurar.
+## Catálogo y tienda
 
-Las imágenes se guardan en el volumen Docker `one-touch-ecommerce-product-uploads` montado en `/app/storage`; sobreviven a reconstrucciones. Endpoints:
-- Privados: `/api/admin/products/...` (requieren sesión y negocio activo validado).
-- Público futuro: `/api/images/[imageId]/file` (solo productos `ACTIVE` y visibles en tienda).
-
-## Servicios
-
-| Servicio | Función |
-|---|---|
-| `app` | Next.js standalone, `0.0.0.0:3000`, publicado en `localhost:3000` |
-| `db` | PostgreSQL 16, red interna `db:5432`, sin puerto en Windows |
-| `migrate` | `prisma migrate deploy` antes de arrancar `app` |
-| `migrate-dev` | Generación de migraciones en el host (perfil `tools`) |
-| `seed` | Usuario local manual (perfil `tools`) |
+- Administración: `/dashboard/products` y `/dashboard/products/[id]`.
+- Catálogo público: solo productos `ACTIVE` y `storeVisible=true` del negocio del slug. Nunca depende de la sesión administrativa ni del `activeTenantId`.
+- Carrito: `localStorage` con clave `one-touch:cart:<tenantId>`; guarda solo `variantId` y cantidad. Los precios se revalidan siempre en el servidor.
+- Imágenes públicas: `/api/images/[imageId]/file` con `Cache-Control: no-store`; solo sirve imágenes de productos activos y visibles.
 
 ## Verificación técnica
 

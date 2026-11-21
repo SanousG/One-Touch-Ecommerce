@@ -1,6 +1,6 @@
 import "server-only";
 import { getPrisma } from "../db/prisma";
-import { assertRole, assertTenantMembership } from "../auth/guards";
+import { assertRole, assertTenantMembership, ForbiddenError } from "../auth/guards";
 
 export const OWNER_ROLE = "OWNER" as const;
 export const OPERATOR_ROLE = "OPERATOR" as const;
@@ -154,6 +154,46 @@ export async function switchTenantForUser(userId: string, tenantId: string): Pro
     await tx.user.update({ where: { id: userId }, data: { activeTenantId: tenantId } });
     return toSummary(verified, tenantId);
   });
+}
+
+/** Configuración pública del negocio activo (lectura verificada). */
+export async function getActiveTenantSettings(userId: string) {
+  const active = await getActiveTenantForUser(userId);
+  if (!active) throw new ForbiddenError("Seleccione un negocio");
+  const tenant = await getPrisma().tenant.findFirst({
+    where: { id: active.id },
+    select: { id: true, name: true, slug: true, whatsappPhone: true },
+  });
+  if (!tenant) throw new ForbiddenError("Negocio no encontrado");
+  return { ...tenant, role: active.role };
+}
+
+/** Normaliza y valida un número E.164. Devuelve null si se solicita vaciar. */
+export function normalizeWhatsappPhone(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") throw new ValidationError("Teléfono no válido");
+  let phone = value.trim().replace(/[\s().-]/g, "");
+  if (phone.startsWith("00")) phone = `+${phone.slice(2)}`;
+  else if (!phone.startsWith("+")) phone = `+${phone}`;
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+    throw new ValidationError("Ingrese un número internacional válido (E.164), por ejemplo +51999999999");
+  }
+  return phone;
+}
+
+/** Configura el WhatsApp del negocio activo. Solo OWNER. */
+export async function updateTenantWhatsapp(userId: string, input: { phone?: unknown }) {
+  const active = await getActiveTenantForUser(userId);
+  if (!active) throw new ForbiddenError("Seleccione un negocio");
+  await assertTenantOwner(userId, active.id);
+
+  const phone = normalizeWhatsappPhone(input.phone);
+  const tenant = await getPrisma().tenant.update({
+    where: { id: active.id },
+    data: { whatsappPhone: phone },
+    select: { id: true, name: true, slug: true, whatsappPhone: true },
+  });
+  return tenant;
 }
 
 /** Verificación de permiso de administración de membresías (Fase 1: solo OWNER). */

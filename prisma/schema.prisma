@@ -92,6 +92,8 @@ model Tenant {
   id          String              @id @default(cuid())
   name        String
   slug        String              @unique
+  // Número E.164 del canal de WhatsApp de este negocio. Solo lo edita OWNER.
+  whatsappPhone String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   memberships TenantMembership[]

@@ -38,7 +38,11 @@ export type IconName =
   | "tag"
   | "moveLeft"
   | "moveRight"
-  | "box";
+  | "box"
+  | "bag"
+  | "minus"
+  | "arrowLeft"
+  | "whatsapp";
 
 const paths: Record<IconName, React.ReactNode> = {
   hub: <><circle cx="12" cy="12" r="3" /><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 6.5 10 10M17 6.5 14 10M7 17.5 10 14" /></>,
@@ -79,6 +83,10 @@ const paths: Record<IconName, React.ReactNode> = {
   moveLeft: <path d="M19 12H5m6-6-6 6 6 6" />,
   moveRight: <path d="M5 12h14m-6-6 6 6-6 6" />,
   box: <><path d="m3 7 9-4 9 4-9 4-9-4Z" /><path d="M3 7v10l9 4 9-4V7M12 11v10" /></>,
+  bag: <><path d="M5 8h14l1 13H4L5 8Z" /><path d="M9 9V6a3 3 0 0 1 6 0v3" /></>,
+  minus: <path d="M5 12h14" />,
+  arrowLeft: <path d="M19 12H5m6 6-6-6 6-6" />,
+  whatsapp: <path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2Zm5.7 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.2-4-1-3.3-1.4-5.4-4.7-5.6-4.9-.1-.2-1.3-1.8-1.3-3.4s.8-2.4 1.1-2.7c.3-.3.7-.4.9-.4h.6c.2 0 .5 0 .8.6.3.7.9 2.3 1 2.4.1.2.1.4 0 .7-.1.3-.2.4-.4.6-.2.2-.4.5-.6.7-.2.2-.4.4-.2.8.2.4 1.1 1.8 2.3 2.8 1.6 1.4 2.9 1.8 3.3 2 .4.2.6.2.9-.1.3-.3 1-1.2 1.3-1.6.3-.4.5-.3.9-.2.4.1 2.3 1.1 2.7 1.3.4.2.7.3.8.5.1.2.1.9-.2 1.6Z" />,
 };
 
 type IconProps = SVGProps<SVGSVGElement> & { name: IconName; size?: number };

@@ -2,28 +2,31 @@
 
 | # | Decisión | Motivo |
 |---|---|---|
-| 1 | Next.js 16, Prisma 7, Better Auth, Docker standalone | Conservar el stack de Fase 1 |
-| 2 | Catálogo en `src/lib/catalog/service.ts` con DTOs | Un único punto de autorización; nunca pasar entidades Prisma al cliente |
-| 3 | Búsqueda por ID con `{ id, tenantId }` | Evita IDOR y no revela existencia de recursos ajenos (404) |
-| 4 | `DECIMAL(12,2)` y precios como string en JSON | Precisión monetaria |
-| 5 | Slug por tenant y SKU por tenant | Permite el mismo nombre en negocios distintos |
-| 6 | Variante predeterminada al crear producto | Simplifica catálogos sin opciones; el inventario futuro apunta a variantes, no a productos |
-| 7 | Campos de stock en la variante (sin lógica) | Evita una migración futura duplicada; no se exponen ni se modifican en 2A |
-| 8 | Archivado lógico (`ARCHIVED`), sin borrado físico | Conserva historial para pedidos/flujos futuros |
-| 9 | Categoría con `onDelete: SetNull` | Archivar/reorganizar no destruye productos |
-| 10 | Imágenes en volumen Docker fuera de la imagen | Persisten tras `up -d --build`; preparado para migrar a S3/R2 cambiando solo el módulo de storage |
-| 11 | Endpoint privado + endpoint público de imágenes | Separa administración de la futura tienda; el público filtra por producto activo y visible |
-| 12 | Validación MIME + firma mágica + máximo 5 MB | Rechaza SVG/HTML y archivos disfrazados |
-| 13 | `turbopackIgnore` en accesos a filesystem | Evita que se trace todo el proyecto en el standalone |
-| 14 | Permisos simples OWNER/OPERATOR (solo archivar reservado) | Cubre la necesidad sin RBAC avanzado |
-| 15 | Sin pruebas automatizadas | Validación manual/HTTP documentada en esta etapa |
+| 1 | Rutas `/tienda/[tenantSlug]` en lugar de subdominios | Aísla por slug sin DNS ni proxy; preparado para dominios futuros mediante rewrite |
+| 2 | Capa `src/lib/store/service.ts` separada del DAL administrativo | La tienda nunca depende de sesión ni de `activeTenantId` |
+| 3 | Filtro `ACTIVE + storeVisible` en cada consulta pública | Evita filtrar borradores, archivados u ocultos |
+| 4 | Variantes inactivas excluidas de la ficha y del carrito | No se puede comprar algo no ofrecido |
+| 5 | Precio mínimo de variantes activas con etiqueta «Desde S/ …» | Precio representativo correcto sin inventar descuentos |
+| 6 | Carrito en localStorage con clave por `tenantId` | Sin backend de carrito en esta fase; separación estricta entre tiendas |
+| 7 | Carrito guarda solo `variantId` + cantidad | Los precios siempre se obtienen del servidor |
+| 8 | Revalidación del carrito en cada carga y antes de WhatsApp | Cambios de precio/visibilidad se reflejan antes de consultar |
+| 9 | `useSyncExternalStore` para el carrito | Evita estado duplicado y desincronización entre cabecera y carrito |
+| 10 | WhatsApp solo Click to Chat (`wa.me`) | Sin API oficial ni chatbot en esta fase; el usuario pulsa Enviar |
+| 11 | Mensajes construidos en servidor | No depender de datos manipulables del navegador |
+| 12 | Teléfono por tenant, editable solo por OWNER | Configuración mínima sin RBAC avanzado |
+| 13 | Sin teléfono = botones desactivados y aviso explícito | No usar números de prueba inventados |
+| 14 | Imágenes públicas `no-store` | Una imagen que deja de estar autorizada deja de servirse |
+| 15 | Páginas de tienda `force-dynamic` | Sin caché de HTML con datos públicos que pueden cambiar |
+| 16 | Sin pruebas automatizadas | Validación manual/HTTP documentada |
 
-## Cambios de requisitos / decisiones posteriores
+## Cambios funcionales
 
-- El stock se modeló en la variante desde ahora porque pedidos e inventario futuros se referirán a `variantId`.
-- El editor visual y WhatsApp siguen fuera de alcance; sus secciones se muestran como no disponibles.
-- La tienda pública no se implementa en 2A; se deja la superficie pública de imágenes con las reglas correctas.
+- Se habilitó `/dashboard/configuracion` (antes deshabilitado) solo para el teléfono de WhatsApp.
+- Se añadió el volumen de imágenes en fases anteriores; en 2B solo se endureció su política de caché.
 
-## Pendiente para fases siguientes
+## Recomendaciones
 
-Tienda pública, fichas, carrito (2B); inventario con movimientos/reservas; flujo visual y chatbot; pedidos.
+- Object storage para imágenes y CDN con invalidación por `tenantId` cuando se publique.
+- Dominios personalizados mediante mapping host → slug.
+- Cuando se implemente el chatbot, reutilizar SKU/cantidad de estos mensajes como contexto; no persistir conversaciones todavía.
+- Inventario real para poder mostrar disponibilidad verificable en las tarjetas.

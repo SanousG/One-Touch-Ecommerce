@@ -1,155 +1,151 @@
 # Historial de implementación
 
-## Fase 1 y 1.1 (resumen)
+## Fases anteriores (resumen)
 
-Base multi-tenant con Better Auth, panel privado, Docker Compose (app/db/migrate/seed), volúmenes persistentes y migración inicial. Sin código de pruebas automatizadas.
+Fase 1: multi-tenancy, Better Auth y panel. Fase 1.1: Dockerización y retirada de pruebas. Fase 2A: catálogo administrativo, variantes, imágenes y migraciones. Sin frameworks de testing.
 
-## Fase 2A — Catálogo administrativo
+## Fase 2B — Tienda pública, ficha y carrito
 
 ### A. Resumen de implementación
 
-Se añadió un catálogo administrativo por negocio con productos, categorías, variantes y galería de imágenes. Se implementaron las dos vistas aprobadas en Stitch (listado y edición) con componentes React/Tailwind propios, una API privada verificada por tenant y una superficie pública de imágenes preparada para la tienda futura. Todo funciona dentro de Docker; no se añadieron pruebas automatizadas.
+Se implementó la tienda pública por negocio con catálogo, fichas de producto, carrito por tenant y consultas Click to Chat por WhatsApp. Los datos provienen del catálogo real de PostgreSQL; las tiendas no requieren login y nunca usan la sesión administrativa. El carrito vive en localStorage separado por negocio y se revalida contra el servidor antes de mostrar precios o generar mensajes. No se crearon pedidos, reservas ni conversaciones.
 
 ### B. Archivos creados y modificados
 
-**Creados (modelo y lógica)**
+**Creados (servidor)**
 
-- `prisma/migrations/20261121014930_catalog/migration.sql`.
-- `src/lib/utils/slug.ts`, `src/lib/auth/permissions.ts`.
-- `src/lib/catalog/service.ts`, `src/lib/catalog/http.ts`.
-- `src/lib/storage/product-images.ts`.
+- `src/lib/store/service.ts`
+- `src/lib/store/cart.ts`
+- `prisma/migrations/20261121020655_tenant_whatsapp/migration.sql`
+- `src/app/api/store/[tenantSlug]/cart/validate/route.ts`
+- `src/app/api/store/[tenantSlug]/whatsapp/product/route.ts`
+- `src/app/api/store/[tenantSlug]/whatsapp/cart/route.ts`
+- `src/app/api/admin/tenants/whatsapp/route.ts`
+- `src/app/tienda/[tenantSlug]/layout.tsx`
+- `src/app/tienda/[tenantSlug]/page.tsx`
+- `src/app/tienda/[tenantSlug]/producto/[productSlug]/page.tsx`
+- `src/app/tienda/[tenantSlug]/carrito/page.tsx`
+- `src/app/dashboard/configuracion/page.tsx`
 
-**Creados (API)**
+**Creados (cliente)**
 
-- `src/app/api/admin/products/route.ts`
-- `src/app/api/admin/products/[id]/route.ts`
-- `src/app/api/admin/products/[id]/variants/route.ts`
-- `src/app/api/admin/products/[id]/variants/[variantId]/route.ts`
-- `src/app/api/admin/products/[id]/images/route.ts`
-- `src/app/api/admin/products/[id]/images/[imageId]/route.ts`
-- `src/app/api/admin/products/images/[imageId]/file/route.ts`
-- `src/app/api/admin/categories/route.ts`
-- `src/app/api/images/[imageId]/file/route.ts`
-
-**Creados (UI)**
-
-- `src/components/catalog/products-view.tsx`
-- `src/components/catalog/product-editor.tsx`
-- `src/components/catalog/variant-manager.tsx`
-- `src/components/catalog/image-manager.tsx`
-- `src/app/dashboard/products/page.tsx`
-- `src/app/dashboard/products/[id]/page.tsx`
+- `src/components/store/store-header.tsx`
+- `src/components/store/store-footer.tsx`
+- `src/components/store/store-catalog.tsx`
+- `src/components/store/product-detail.tsx`
+- `src/components/store/cart-view.tsx`
+- `src/components/tenants/whatsapp-settings.tsx`
 
 **Modificados**
 
-- `prisma/schema.prisma`: enum `ProductStatus` y modelos `Category`, `Product`, `ProductVariant`, `ProductImage`; relaciones en `Tenant`.
-- `src/components/ui/icon.tsx`: nuevos iconos SVG.
-- `src/components/dashboard/sidebar.tsx`: “Productos” pasó a ser navegación activa.
-- `src/lib/tenants/service.ts`: `getMembershipRole()`.
-- `docker-compose.yml`: variable `PRODUCT_UPLOAD_DIR`, volumen `one-touch-ecommerce-product-uploads`, servicio `migrate-dev`.
-- `Dockerfile`: creación del directorio `/app/storage` con propietario `nextjs`.
+- `prisma/schema.prisma`: `Tenant.whatsappPhone String?`.
+- `src/lib/tenants/service.ts`: `getActiveTenantSettings()`, `normalizeWhatsappPhone()`, `updateTenantWhatsapp()`.
+- `src/components/dashboard/sidebar.tsx`: “Configuración” activa.
+- `src/components/ui/icon.tsx`: iconos `bag`, `minus`, `arrowLeft`, `whatsapp`.
+- `src/app/api/images/[imageId]/file/route.ts`: `Cache-Control: no-store`.
 - `README.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, este archivo.
 
-`opencode.json` y la conexión MCP de Stitch no se modificaron.
+`opencode.json` y MCP de Stitch intactos. No se borraron volúmenes ni datos.
 
-### C. Modelos de datos y migraciones
+### C. Rutas públicas implementadas
 
-| Tabla | Campos clave |
+| Ruta | Función |
 |---|---|
-| `categories` | `tenantId`, `name`, `slug`, `description`; único `(tenantId, slug)` |
-| `products` | `tenantId`, `categoryId?`, `name`, `slug`, `description?`, `status` (`DRAFT`/`ACTIVE`/`ARCHIVED`), `storeVisible`; único `(tenantId, slug)`; índices por tenant+estado y tenant+categoría |
-| `product_variants` | `tenantId`, `productId`, `sku`, `name`, `price DECIMAL(12,2)`, `isActive`, `isDefault`, `stockPhysical`, `stockReserved`; único `(tenantId, sku)` |
-| `product_images` | `tenantId`, `productId`, `storageKey` (único), `fileName`, `mimeType`, `sizeBytes`, `position`, `isCover` |
+| `/tienda/ganga-online-1dtlkl` | Catálogo público A |
+| `/tienda/negocio-b-local-5shfty` | Catálogo público B |
+| `/tienda/[tenantSlug]/producto/[productSlug]` | Ficha pública |
+| `/tienda/[tenantSlug]/carrito` | Carrito por negocio |
 
-Migración `20261121014930_catalog` generada con `prisma migrate dev --name catalog --create-only` dentro de Docker (bind mount del host). La inicial no se tocó. `migrate` aplicó la nueva migración: salida «2 migrations found» → «Applying migration 20261121014930_catalog» → «All migrations have been successfully applied». Consulta posterior: `_prisma_migrations` contiene `20261121003339_init` y `20261121014930_catalog`.
+API pública: `/api/store/[tenantSlug]/cart/validate`, `/api/store/[tenantSlug]/whatsapp/product` y `/api/store/[tenantSlug]/whatsapp/cart`.
 
-### D. Funcionamiento de productos, categorías y variantes
+### D. Funcionamiento del catálogo y fichas
 
-- Listado con búsqueda por nombre o SKU (insensible a mayúsculas), filtro por categoría y visibilidad, conteo y estados vacíos.
-- Creación con variante predeterminada (nombre, SKU opcional y precio). El SKU se normaliza en mayúsculas conservando guiones.
-- Edición de nombre, categoría, descripción y estado; precio editable desde la sección de variantes.
-- Variantes: alta, edición de nombre/SKU/precio y activación/desactivación; `isDefault` se asigna a la primera.
-- Categorías: alta desde un diálogo y asociación por negocio.
-- Visibilidad y archivado se alternan desde el listado (archivar/restaurar solo para OWNER). No existe borrado físico.
+Búsqueda por nombre, filtros por categoría, tarjetas con portada del volumen persistente, precio representativo («S/ …» o «Desde S/ …»), accesos a ficha y carrito y estado vacío. Solo se listan productos `ACTIVE` y `storeVisible=true` del tenant del slug; los productos DRAFT y ARCHIVED quedaron fuera en la validación real.
 
-### E. Gestión y persistencia de imágenes
+La ficha muestra galería, descripción real, variantes activas, cantidad (1–99), botones de carrito y WhatsApp. Con una sola variante se simplifica el selector. No se muestra disponibilidad de stock ni características inventadas; se aclara que disponibilidad/envío se confirman por WhatsApp.
 
-- Subida multipart con validación de MIME (JPEG/PNG/WebP), firma binaria (no solo extensión) y límite de 5 MB; se rechazó una carga SVG con respuesta 400/404.
-- Portada, reordenado y eliminación en transacciones; al borrar la portada se reasigna a la primera restante.
-- Archivos: `PRODUCT_UPLOAD_DIR=/app/storage/product-images`, volumen `one-touch-ecommerce-product-uploads`, usuario `nextjs`. Se validó que tras `docker compose up -d --build` siguen 2 archivos en el volumen y siguen descargándose.
-- Acceso privado: `/api/admin/products/images/[id]/file` (`private, no-store`). Acceso público: `/api/images/[id]/file` (`public, max-age=3600`), que solo responde 200 si el producto está `ACTIVE` y `storeVisible`; en `DRAFT` devolvió 404.
+### E. Funcionamiento del carrito
 
-### F. Seguridad y aislamiento multi-tenant
+Clave `one-touch:cart:<tenantId>`; guarda solo `variantId` y cantidad. Al cargar, `POST /cart/validate` devuelve líneas con nombres, SKU, precios vigentes, totales y subtotal en `DECIMAL`; los artículos inválidos se quitan y se avisa al cliente. Cantidades 0, negativas y decimales se rechazan. Se verificó por separado que un carrito del negocio A no aparece en B y que la información persiste entre “recargas” simuladas.
 
-- `getApiCatalogContext()` y `requireCatalogContext()` validan sesión, negocio activo y membresía en cada operación.
-- Todas las consultas incluyen `tenantId`; un producto de otro negocio devuelve 404 y un cambio de negocio devuelve 403.
-- Categorías de otro negocio se rechazan al crear/editar productos.
-- Transacciones para producto+variante, portada, orden y borrado de imágenes.
-- Permisos: OWNER y OPERATOR administran el catálogo; solo OWNER archiva/restaura.
-- No se debilitaron rate limiting, cookies ni guards existentes.
+### F. Integración básica con WhatsApp
 
-### G. Pantallas de Stitch implementadas
+`Tenant.whatsappPhone` se configura en `/dashboard/configuracion`, solo OWNER (validado con ForbiddenError para OPERATOR). El teléfono se normaliza a E.164.
+
+Mensaje de ficha: producto, variante, cantidad, precio referencial por unidad y SKU; no incluye el carrito. Mensaje de carrito: líneas numeradas con variante y cantidad, y subtotal referencial calculado en servidor. Ambos usan `wa.me/<digits>?text=<encode>`. Se validó el contenido decodificado de ambos mensajes. Sin teléfono, los botones se desactivan y aparece un aviso; la API devuelve 409.
+
+Abrir WhatsApp no envía el mensaje, no crea pedidos, no reserva stock y no registra pagos.
+
+### G. Seguridad y aislamiento multi-tenant
+
+- La identidad pública se resuelve por slug en servidor; un slug inexistente da 404.
+- Todas las consultas de tienda incluyen `tenantId`, `ACTIVE` y `storeVisible`.
+- Variantes, categorías, imágenes y carrito se validan contra el mismo tenant.
+- Mensajes generados en servidor con datos vigentes.
+- Imagen pública revalidada en cada petición (`no-store`); al ocultar un producto pasó a 404.
+- Sin sesión administrativa ni `activeTenantId` en ninguna ruta pública.
+
+### H. Diseños de Stitch utilizados
 
 Proyecto `projects/1619124812250481064`:
 
-- Listado: `screens/927f207470fb440f99b269fd030ca478` — *Productos — Ganga Online*.
-- Edición: `screens/03eda08376f746aabb1f7f2e245f1ef0` — *Editar producto — Barra LED recargable*.
+- Catálogo: `screens/7bfbd07fc1f047cb9853ca8f3d5a4bfe`.
+- Ficha: `screens/4f2a579343394d369953c3190022349e`.
+- Carrito: `screens/1653e502de0441bfbaabdf3cf12eaa50`.
 
-Se conservaron estructura de tabla, barra de filtros, cabeceras con acciones, tarjetas de información/variantes/galería y jerarquía visual. Diferencias: se usan los tokens base de la Fase 1 (`#4F46E5`, `#F8FAFC`, Inter); los datos son reales de la BD; las secciones de stock, flujo del bot, WhatsApp y ficha pública aparecen como “no disponible” en esta fase; no se muestran cifras de stock ni estados de flujo inventados.
+Se conservaron cabecera con marca, píldoras de categoría, rejilla de tarjetas, galería protagonista, selector de variantes/cantidad, resumen lateral y CTA verde de WhatsApp. Diferencias: sin badges de stock/descuentos ni importes ilustrativos; precios reales; secciones no implementadas marcadas como no disponibles; verde reservado a WhatsApp; paleta e Inter de la Fase 1. No se copió HTML.
 
-### H. Validaciones ejecutadas con resultados reales
+### I. Migraciones y cambios de modelos
+
+`20261121020655_tenant_whatsapp` añade `whatsappPhone` a `tenants`, sin valor por defecto y compatible con datos existentes. `migrate` aplicó 3 migraciones («3 migrations found», «Applying migration 20261121020655_tenant_whatsapp», «All migrations have been successfully applied»). No se usó `db push` ni se borraron datos. `_prisma_migrations` contiene las 3 migraciones.
+
+### J. Validaciones manuales realizadas y sus resultados
 
 | Validación | Resultado |
 |---|---|
 | `npm run lint` | ✅ 0 errores, 0 advertencias |
 | `npm run typecheck` | ✅ sin errores |
-| `npm run build` | ✅ 19 rutas, sin errores (2 avisos de tracing resueltos con `turbopackIgnore`) |
-| `docker compose up -d --build` | ✅ imágenes reconstruidas, migración aplicada, `app` healthy |
-| Login OWNER A | ✅ 200 con cookie |
-| Listado inicial | ✅ 0 productos |
-| Crear categoría “Iluminación” | ✅ 201 |
-| Crear producto + variante | ✅ 201 (2 variantes tras añadir otra) |
-| Editar descripción | ✅ 200 |
-| Crear segunda variante | ✅ 201 |
-| Subir 2 imágenes PNG | ✅ 201 (1 y 2 imágenes) |
-| Cambiar portada | ✅ 200 |
-| Reordenar imágenes | ✅ 200 |
-| Descarga privada de imagen | ✅ 200 `image/png` |
-| Búsqueda por nombre | ✅ 1 resultado |
-| Búsqueda por SKU | ✅ 1 resultado (con el SKU real `BLR30K`; la primera comprobación usó `BLR-30K` y falló, se corrigió la normalización del SKU para conservar guiones) |
-| Filtro por categoría | ✅ 1 resultado |
-| Cambiar visibilidad | ✅ 200 `storeVisible=true` |
-| Archivar (OWNER) | ✅ 200 `ARCHIVED`; restauración a `DRAFT` ✅ |
-| Producto ajeno (usuario B) | ✅ 404 |
-| Listado/categorías del negocio B | ✅ 0 productos, sin la categoría de A |
-| Rechazo de SVG | ✅ 400 |
-| Páginas `/dashboard/products` y `/dashboard/products/[id]` | ✅ 200 |
-| Imagen pública en DRAFT / ACTIVE+visible | ✅ 404 / 200 |
-| Persistencia tras rebuild | ✅ producto, 2 variantes, 2 imágenes y archivos conservados |
+| `npm run build` | ✅ 27 rutas, sin errores |
+| `docker compose up -d --build` | ✅ migración aplicada, `app` healthy |
+| Tienda A y B sin login | ✅ 200; A con productos, B con estado vacío inicial |
+| Slug inexistente | ✅ 404 |
+| DRAFT y ARCHIVED excluidos | ✅ no aparecen en HTML público |
+| Filtros/búsqueda y categorías | ✅ componentes y rutas con query verificadas |
+| Ficha A y B | ✅ 200; galería, variantes y cantidad presentes |
+| Variante + cantidad | ✅ mensaje y carrito usan la variante elegida |
+| Agregar/actualizar/quitar artículos y vaciar | ✅ módulo de carrito verificado con localStorage simulado |
+| Persistencia del carrito entre cargas | ✅ mismo contenido tras nueva carga simulada |
+| Separación de carritos A/B | ✅ clave distinta; el otro negocio devuelve [] |
+| Mensaje WhatsApp de un producto | ✅ 200, `wa.me/51987654321`, nombre/variante/cantidad/SKU en el texto |
+| Mensaje WhatsApp del carrito | ✅ 200, 2 líneas, subtotal referencial 279.70 calculado en servidor |
+| Variante inactiva | ✅ rechazada en validación (0 líneas) y en WhatsApp (409) |
+| Sin WhatsApp configurado | ✅ aviso en ficha/carrito y API 409 |
+| OWNER configura teléfono | ✅ 200; OPERATOR rechazado con ForbiddenError |
+| Cambio de precio | ✅ el carrito reflejó 95.50 sin confiar en el navegador |
+| Cambio de visibilidad | ✅ ficha 404, carrito sin líneas y imagen 404; al restaurar, todo 200 |
+| Imagen pública | ✅ 200 con `Cache-Control: no-store` |
+| Sin tabla de pedidos | ✅ `information_schema` solo muestra las 11 tablas previas |
+| Persistencia tras rebuild | ✅ productos, teléfonos e imagen conservados |
 | Logs de `app` | ✅ sin errores críticos |
 
-No se crearon archivos ni frameworks de pruebas.
+Incidencias menores resueltas: un script inicial eligió un producto DRAFT recién creado en vez del publicado; una comprobación asumió erróneamente que el usuario B era OPERATOR (es OWNER); un intento de limpiar el teléfono de B devolvió 500 porque el login había sido limitado por rate limit, por lo que se añadió mapeo explícito de 401 en el endpoint; el stub de localStorage usado en la verificación no tenía `dispatchEvent`.
 
-### I. Estado de los contenedores Docker
+### K. Estado de Docker Compose
 
-`app` Up (healthy, `0.0.0.0:3000->3000/tcp`), `db` Up (healthy, `5432/tcp` sin publicar en Windows), `migrate` Exited correctamente, `seed` y `migrate-dev` bajo perfil `tools`. Sin borrado de volúmenes ni contenedores de otros proyectos.
+`app` y `db` Up (healthy), `migrate` Exited correctamente, `seed`/`migrate-dev` bajo perfil `tools`. PostgreSQL sin puerto publicado. Sin volúmenes borrados.
 
-### J. Problemas encontrados y soluciones aplicadas
+### L. Problemas encontrados y soluciones
 
-1. Búsqueda por SKU fallida en la primera validación: la normalización eliminaba guiones (`BLR-30K` → `BLR30K`). Se cambió para conservarlos y se repitió la comprobación.
-2. Avisos de Turbopack por acceso dinámico a filesystem: se añadieron comentarios `turbopackIgnore` en el módulo de storage.
-3. `PrismaUpdateInput` no acepta `categoryId`: se sustituyó por `category: { connect/disconnect }`.
-4. Icono `edit` ausente: se añadió al conjunto SVG.
-5. Advertencia de contenedores huérfanos de fases anteriores: se mantuvieron detenidos, sin eliminación.
+Ver J. Además, el endpoint de WhatsApp de carrito devuelve 409 con `issues` y el estado revalidado cuando algún artículo deja de estar disponible, para que el cliente revise antes de abrir el chat.
 
-### K. Decisiones técnicas y cambios propuestos
+### M. Decisiones técnicas y recomendaciones
 
-Ver `docs/DECISIONS.md`. Se decidió modelar stock en la variante sin lógica, archivado lógico, slug/SKU por tenant y storage intercambiable por proveedor externo. Propuesto: mover imágenes a object storage cuando se publique la tienda y añadir auditoría de cambios de catálogo.
+Ver `docs/DECISIONS.md`. Se priorizó revalidación server-side, separación por tenant y mensajería sin estado. Recomendado: object storage/CDN, dominios personalizados, inventario real y, más adelante, usar el SKU de estos mensajes como contexto del chatbot.
 
-### L. Pendientes para la Fase 2B
+### N. Estado de Git
 
-Tienda pública con catálogo por tenant, fichas de producto con galería, selector de variantes y carrito. No se implementaron en esta fase.
+Commit de Fase 2B con mensaje «Fase 2B: tienda publica, ficha y carrito». Sin pruebas automatizadas añadidas. `.env`, volúmenes e imágenes fuera del repositorio.
 
-### M. Estado de Git
+### O. Pendientes de la siguiente fase
 
-Commit de Fase 2A con mensaje «Fase 2A: catalogo administrativo multi-tenant». `.env`, `node_modules`, `.next`, volúmenes e imágenes subidas quedan fuera del repositorio.
+Pedidos/checkout, inventario con reservas y movimientos, chatbot/API de WhatsApp, flujo visual, y publicación/landings. No se implementaron aquí.

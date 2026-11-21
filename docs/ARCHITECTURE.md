@@ -2,55 +2,54 @@
 
 ## Entorno Docker
 
-- `db`: PostgreSQL 16-alpine, red `one-touch-network`, hostname `db`, sin puerto publicado. Volumen `one-touch-ecommerce-pgdata-dev`.
-- `migrate`: objetivo `migrator` del Dockerfile; `prisma migrate deploy` con `depends_on` healthy. `app` espera a `service_completed_successfully`.
-- `app`: objetivo `runner`, Next.js standalone, usuario no root, `0.0.0.0:3000`. Volumen `one-touch-ecommerce-product-uploads` en `/app/storage` (variable `PRODUCT_UPLOAD_DIR`).
-- `migrate-dev` y `seed`: servicios `tools` con ejecución manual.
+`db` (PostgreSQL 16, red interna `db:5432`), `migrate` (`prisma migrate deploy` antes de `app`), `app` (Next.js standalone, usuario no root, puerto 3000), `migrate-dev` y `seed` (perfil `tools`). Volúmenes: `one-touch-ecommerce-pgdata-dev` y `one-touch-ecommerce-product-uploads`.
 
-## Catálogo (Fase 2A)
+## Capas
 
-### Capas
+1. **Administración**: DAL de sesión, guards, servicios de catálogo/tenant y API `/api/admin/*`.
+2. **Tienda pública**: `src/lib/store/service.ts` (`server-only`) resuelve la tienda por slug y consulta solo datos publicables. No importa módulos de sesión ni usa `activeTenantId`.
+3. **Carrito del cliente**: `src/lib/store/cart.ts` (localStorage) + `useSyncExternalStore`. Guarda únicamente `variantId` y cantidad. Clave separada por `tenantId`.
+4. **API pública**: `/api/store/[tenantSlug]/cart/validate`, `/whatsapp/product` y `/whatsapp/cart`. Todas revalida contra PostgreSQL antes de responder.
 
-1. **Páginas**: `/dashboard/products` y `/dashboard/products/[id]` son `force-dynamic` y usan `requireCatalogContext()`.
-2. **Componentes cliente**: `products-view`, `product-editor`, `variant-manager`, `image-manager`. Solo interactúan con los endpoints; no contienen lógica de autorización.
-3. **Servicio `src/lib/catalog/service.ts`**: `server-only`. Resuelve el contexto (negocio activo + rol), valida pertenencia y realiza todas las mutaciones. Ninguna consulta omite `tenantId`.
-4. **API**: `/api/admin/products`, `/api/admin/categories` y subrecursos. Mapean errores a HTTP con `catalogErrorResponse`.
-5. **Almacenamiento `src/lib/storage/product-images.ts`**: valida MIME + firma binaria, guarda con clave `tenant/product/uuid.ext` y resuelve rutas dentro del directorio base (sin path traversal).
+## Rutas públicas
 
-### Modelo y relaciones
+| Ruta | Función |
+|---|---|
+| `/tienda/[tenantSlug]` | Catálogo con búsqueda y filtros por categoría |
+| `/tienda/[tenantSlug]/producto/[productSlug]` | Ficha con galería, variantes, cantidad y WhatsApp |
+| `/tienda/[tenantSlug]/carrito` | Carrito por negocio y envío por WhatsApp |
 
-```
-Tenant 1──N Category       (slug único por tenant)
-Tenant 1──N Product        (slug único por tenant)
-Tenant 1──N ProductVariant (SKU único por tenant)
-Tenant 1──N ProductImage   (storageKey único)
-Product 1──N ProductVariant / ProductImage
-Product N──0..1 Category   (onDelete: SetNull)
-```
+El `tenantSlug` se resuelve en servidor y determina todos los `where`. Un slug inexistente devuelve 404. La estructura por slug permite en el futuro mapear un dominio personalizado al mismo slug mediante un rewrite, sin cambiar la capa de datos (no implementado).
 
-Precios: `DECIMAL(12,2)`. Se serializan como cadena en JSON para no perder precisión.
+## Reglas de publicación
 
-### Aislamiento
+- Producto visible solo si `tenantId` coincide, `status = ACTIVE` y `storeVisible = true`.
+- Variantes mostradas solo con `isActive = true`.
+- Categorías e imágenes se obtienen por el mismo `tenantId` del producto.
+- Precio representativo: menor precio de variantes activas; si hay varios precios distintos se muestra «Desde S/ …». Si no hay variantes activas, «Consultar precio».
+- La imagen pública vuelve a validar autorización en cada petición y responde `Cache-Control: no-store`.
 
-- `getApiCatalogContext()` valida sesión en BD, resuelve el negocio activo y exige membresía; `resolveActor()` comprueba la relación exacta usuario/negocio.
-- Toda búsqueda por ID usa `{ id, tenantId }`. Un ID ajeno produce 404 (no filtra existencia).
-- Categorías, variantes, imágenes y archivos se validan contra el mismo `tenantId`.
-- Operaciones multi-registro (crear producto + variante, portada, reordenar, borrar imagen) usan `$transaction`.
-- Si falla la escritura en BD tras guardar el archivo, se elimina el archivo huérfano.
-- La superficie pública de imágenes solo sirve productos `ACTIVE` + `storeVisible: true`; la administración usa endpoints privados con `Cache-Control: private, no-store`.
+## Carrito
 
-### Permisos iniciales (sin RBAC avanzado)
+- Clave: `one-touch:cart:<tenantId>`. Dos negocios nunca comparten entradas.
+- Payload: `[{ variantId, quantity }]`. Cantidades enteras 1..99.
+- Al cargar el carrito se envía a `/cart/validate`: se descartan variantes inactivas, productos ocultos/archivados o de otro tenant y se recuperan precios vigentes del servidor.
+- Modificar cantidades no crea pedidos ni reserva stock. No hay tabla de carritos ni de pedidos.
 
-| Operación | OWNER | OPERATOR |
-|---|---|---|
-| Ver/crear/editar productos, variantes, categorías, imágenes | ✅ | ✅ |
-| Cambiar visibilidad | ✅ | ✅ |
-| Archivar / restaurar | ✅ | ❌ |
+## WhatsApp (Click to Chat)
 
-### Inventario y flujos futuros
+- `Tenant.whatsappPhone` (E.164, opcional) se edita solo en `/dashboard/configuracion` por OWNER.
+- Ficha: `POST /whatsapp/product` revalida variante/cantidad y genera un mensaje con producto, variante, cantidad, precio referencial por unidad y SKU.
+- Carrito: `POST /whatsapp/cart` revalida todas las líneas y genera un mensaje numerado con subtotal calculado en servidor con `DECIMAL`.
+- `whatsappUrl()` construye `https://wa.me/<digits>?text=<encodeURIComponent(message)>`.
+- El enlace abre un chat; el usuario debe pulsar Enviar. No hay API oficial, chatbot, conversaciones ni seguimiento.
 
-`ProductVariant` ya incluye `stockPhysical` y `stockReserved` (valor 0, sin API ni UI en esta fase). El disponible se calcula como diferencia. El módulo de inventario podrá escribir estos campos sin duplicar productos ni variantes; los movimientos y reservas se modelarán aparte. Las secciones de flujo de venta, WhatsApp, inventario y ficha pública aparecen deshabilitadas o como “no disponible”.
+Los mensajes incluyen referencias (SKU) y cantidades que en el futuro podrán usarse para reconocer productos al conectar el chatbot; hoy son solo texto.
 
-## Seguridad previa
+## Modelo añadido en 2B
 
-La inicialización de Prisma y Better Auth es diferida, las páginas con sesión son `force-dynamic`, `proxy.ts` hace la comprobación optimista y el DAL realiza la autorización real. Las cookies por defecto son `Secure`; `AUTH_COOKIES_SECURE=false` es solo para HTTP local.
+`Tenant.whatsappPhone String?` (migración `20261121020655_tenant_whatsapp`). El resto del modelo de catálogo permanece igual.
+
+## Seguridad
+
+La autorización pública se basa solo en el slug y el estado de publicación. Las mutaciones administrativas siguen exigiendo sesión, negocio activo y rol. No se exponen costos internos, stock, ni datos de otros tenants. Las cookies por defecto son `Secure`; en local `AUTH_COOKIES_SECURE=false`.

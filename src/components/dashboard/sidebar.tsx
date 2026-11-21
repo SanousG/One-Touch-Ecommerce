@@ -16,7 +16,7 @@ const items: NavItem[] = [
   { label: "Conversaciones", icon: "chat" },
   { label: "Pedidos", icon: "receipt" },
   { label: "Inventario", icon: "warehouse" },
-  { label: "Configuración", icon: "settings" },
+  { label: "Configuración", icon: "settings", href: "/dashboard/configuracion" },
 ];
 
 type Props = {

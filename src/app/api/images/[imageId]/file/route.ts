@@ -15,7 +15,7 @@ export async function GET(_request: Request, { params }: Context) {
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": image.mimeType,
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       },
     });
