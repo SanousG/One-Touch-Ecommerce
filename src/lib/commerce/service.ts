@@ -259,7 +259,12 @@ export async function listOrders(actor: Actor): Promise<OrderDTO[]> {
   return rows.map(toOrderDTO);
 }
 
-export async function createOrder(actor: Actor, input: CreateOrderInput, idempotencyKey?: string): Promise<OrderDTO> {
+export async function createOrder(
+  actor: Actor,
+  input: CreateOrderInput,
+  idempotencyKey?: string,
+  context?: { conversationId?: string },
+): Promise<OrderDTO> {
   assertOrderManager(actor.role);
   if (!Array.isArray(input.items) || input.items.length === 0) throw new CommerceError("El pedido necesita al menos un producto", 400);
   if (input.items.length > 30) throw new CommerceError("Máximo 30 líneas por pedido", 400);
@@ -274,6 +279,14 @@ export async function createOrder(actor: Actor, input: CreateOrderInput, idempot
   // Rechazar variantes duplicadas en la misma solicitud.
   if (new Set(normalized.map((item) => item.variantId)).size !== normalized.length) {
     throw new CommerceError("No repetir variantes; ajuste la cantidad", 400);
+  }
+
+  if (context?.conversationId) {
+    const conversation = await getPrisma().conversation.findFirst({
+      where: { id: context.conversationId, tenantId: actor.tenantId },
+      select: { id: true },
+    });
+    if (!conversation) throw new CommerceError("La conversación no pertenece al negocio", 400);
   }
 
   const customerName = cleanText(input.customerName, "Nombre del cliente", 120, true)!;
@@ -360,6 +373,7 @@ export async function createOrder(actor: Actor, input: CreateOrderInput, idempot
         fulfillmentStatus: requiresAdvance ? "WAITING_ADVANCE" : "READY_TO_PREPARE",
         notes: cleanText(input.notes, "Notas", 600),
         idempotencyKey: idempotencyKey ?? null,
+        conversationId: context?.conversationId ?? null,
       },
     });
 

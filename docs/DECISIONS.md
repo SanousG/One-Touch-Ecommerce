@@ -34,6 +34,16 @@
 | 28 | Comprobantes en almacenamiento privado | Nunca URL pública; verificación manual del OWNER |
 | 29 | Sin expiración automática de reservas | No inventar vencimientos ni procesos programados; política futura |
 
+| 30 | Interfaz `WhatsAppProvider` + adaptadores | El núcleo no depende de Wasender; Meta se registra como futuro |
+| 31 | WasenderAPI como primer proveedor | Sesiones ya habilitadas; sin Personal Access Token global |
+| 32 | AES-256-GCM con formato versionado | Credenciales cifradas, nonce individual y rotación futura |
+| 33 | Webhook con comparación directa del secreto | Contrato documentado de Wasender (no HMAC de Meta) |
+| 34 | WebhookEvent durable y idempotente | Eventos persistentes antes de confirmar; sin reprocesos |
+| 35 | Cola saliente en PostgreSQL + worker | Durabilidad y control de concurrencia sin tareas en memoria |
+| 36 | Estado incierto en timeouts | Evita reenvíos ciegos que dupliquen mensajes |
+| 37 | Una conversación por contacto/conexión | Reabrir en vez de duplicar al llegar un mensaje nuevo |
+| 38 | Retorno de flujos globales por arista de salida | Define continuación sin estado global (Fase 3B) |
+
 ## Cambios de requisitos
 
 - La referencia oficial de Stitch mostraba datos de stock y despacho; se omitieron porque no existen datos confiables en esta fase.

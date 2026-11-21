@@ -15,7 +15,7 @@ const items: NavItem[] = [
   { label: "Tienda y landings", icon: "storefront", href: "/dashboard/landings" },
   { label: "Flujos de venta", icon: "split", href: "/dashboard/flows" },
   { label: "Plantillas", icon: "chat", href: "/dashboard/templates" },
-  { label: "Conversaciones", icon: "chat" },
+  { label: "Conversaciones", icon: "chat", href: "/dashboard/conversations" },
   { label: "Pedidos", icon: "receipt", href: "/dashboard/orders" },
   { label: "Inventario", icon: "warehouse", href: "/dashboard/inventory" },
   { label: "Configuración", icon: "settings", href: "/dashboard/configuracion" },

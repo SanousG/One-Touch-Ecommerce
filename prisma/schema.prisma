@@ -103,6 +103,87 @@ enum OrderEventType {
   CANCELLED
 }
 
+enum WhatsAppProviderKind {
+  WASENDER
+  // META se registra como proveedor futuro no disponible (sin credenciales ni cliente).
+  META
+}
+
+enum WhatsAppConnectionStatus {
+  NOT_CONFIGURED
+  PENDING
+  CONNECTED
+  CONNECTING
+  NEEDS_LINKING
+  DISCONNECTED
+  ERROR
+}
+
+enum ConversationStatus {
+  PENDING
+  HUMAN
+  RESOLVED
+}
+
+enum ConversationMode {
+  HUMAN
+  BOT
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageKind {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+  STICKER
+  LOCATION
+  CONTACT
+  UNKNOWN
+}
+
+enum MessageStatus {
+  PENDING
+  PROCESSING
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  UNCERTAIN
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum OutboundStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  UNCERTAIN
+}
+
+enum ConversationEventType {
+  CREATED
+  ASSIGNED
+  UNASSIGNED
+  RESOLVED
+  REOPENED
+  MODE_CHANGED
+  MESSAGE_IN
+  MESSAGE_OUT
+}
+
 model User {
   id             String              @id @default(cuid())
   name           String
@@ -195,6 +276,13 @@ model Tenant {
   movements   InventoryMovement[]
   vouchers    PaymentVoucher[]
   orderEvents OrderEvent[]
+  whatsappConnections WhatsAppConnection[]
+  whatsappContacts     WhatsAppContact[]
+  conversations        Conversation[]
+  messages             ConversationMessage[]
+  conversationEvents   ConversationEvent[]
+  webhookEvents        WebhookEvent[]
+  outboundMessages     OutboundMessage[]
 
   @@map("tenants")
 }
@@ -423,6 +511,15 @@ model SalesFlowVersion {
   @@map("sales_flow_versions")
 }
 
+/// Secuencia de numeración creada manualmente en la migración de pedidos.
+/// Se declara para que Prisma no intente eliminarla.
+model OrderNumberSequence {
+  tenantId   String @id
+  lastNumber Int    @default(0)
+
+  @@map("order_number_sequences")
+}
+
 /// Movimiento auditável de inventario. Nunca se elimina, ni si el producto se archiva.
 model InventoryMovement {
   id             String          @id @default(cuid())
@@ -476,11 +573,14 @@ model Order {
   reservations      StockReservation[]
   vouchers          PaymentVoucher[]
   events            OrderEvent[]
+  conversation      Conversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  conversationId    String?
 
   @@unique([tenantId, orderNumber])
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, fulfillmentStatus])
   @@index([tenantId, paymentStatus])
+  @@index([tenantId, conversationId])
   @@map("orders")
 }
 
@@ -563,4 +663,170 @@ model OrderEvent {
 
   @@index([tenantId, orderId, createdAt])
   @@map("order_events")
+}
+
+/// Conexión de WhatsApp por negocio. Las credenciales se guardan cifradas.
+model WhatsAppConnection {
+  id                 String                    @id @default(cuid())
+  tenantId           String
+  provider           WhatsAppProviderKind
+  name               String
+  expectedPhone      String?
+  externalSessionId  String?                   @unique
+  status             WhatsAppConnectionStatus  @default(NOT_CONFIGURED)
+  providerStatus     String?
+  isPrimary          Boolean                   @default(false)
+  credentials        String
+  credentialsVersion Int                       @default(1)
+  webhookId          String                    @unique
+  webhookSecretHash  String?
+  lastCheckedAt      DateTime?
+  lastError          String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  tenant             Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contacts           WhatsAppContact[]
+  conversations      Conversation[]
+  messages           ConversationMessage[]
+  webhookEvents      WebhookEvent[]
+  outboundMessages   OutboundMessage[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isPrimary])
+  @@map("whatsapp_connections")
+}
+
+/// Contacto identificado dentro de una conexión. Conserva PN y LID sin convertirlos.
+model WhatsAppContact {
+  id             String                 @id @default(cuid())
+  tenantId       String
+  connectionId   String
+  externalId     String
+  phone          String?
+  lid            String?
+  addressingMode String?
+  displayName    String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection     WhatsAppConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+
+  @@unique([connectionId, externalId])
+  @@index([tenantId, phone])
+  @@map("whatsapp_contacts")
+}
+
+model Conversation {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  connectionId    String
+  contactId       String
+  status          ConversationStatus     @default(PENDING)
+  mode            ConversationMode       @default(HUMAN)
+  assignedToId    String?
+  lastMessageAt   DateTime               @default(now())
+  lastMessage     String?
+  unreadCount     Int                    @default(0)
+  context         Json                   @default("{}")
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection      WhatsAppConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  contact         WhatsAppContact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages        ConversationMessage[]
+  events          ConversationEvent[]
+  outbound        OutboundMessage[]
+  orders          Order[]
+
+  @@unique([connectionId, contactId])
+  @@index([tenantId, status, lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id              String                 @id @default(cuid())
+  tenantId        String
+  connectionId    String
+  conversationId  String
+  externalId      String?
+  direction       MessageDirection
+  kind            MessageKind            @default(TEXT)
+  authorName      String?
+  content         String?
+  media           Json                   @default("{}")
+  status          MessageStatus          @default(PENDING)
+  providerStatus  String?
+  eventAt         DateTime?
+  createdAt       DateTime               @default(now())
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection      WhatsAppConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  conversation    Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  outbound        OutboundMessage?
+
+  @@unique([connectionId, externalId])
+  @@index([tenantId, conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+model ConversationEvent {
+  id             String                 @id @default(cuid())
+  tenantId       String
+  conversationId String
+  type           ConversationEventType
+  description    String
+  actorId        String?
+  createdAt      DateTime               @default(now())
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation   Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId, createdAt])
+  @@map("conversation_events")
+}
+
+/// Evento durable recibido del proveedor. Nunca se guarda el payload crudo
+/// completo porque puede contener sessionId/API keys.
+model WebhookEvent {
+  id             String               @id @default(cuid())
+  tenantId       String?
+  connectionId   String?
+  provider       WhatsAppProviderKind
+  event          String
+  dedupeKey      String               @unique
+  payload        Json
+  status         WebhookEventStatus   @default(RECEIVED)
+  error          String?
+  createdAt      DateTime             @default(now())
+  processedAt    DateTime?
+  tenant         Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  connection     WhatsAppConnection?  @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("webhook_events")
+}
+
+/// Cola persistente de mensajes salientes; el worker la procesa con concurrencia limitada.
+model OutboundMessage {
+  id                   String               @id @default(cuid())
+  tenantId             String
+  connectionId         String
+  conversationId       String
+  conversationMessageId String              @unique
+  to                   String
+  text                 String
+  status               OutboundStatus       @default(PENDING)
+  attempts             Int                  @default(0)
+  lastError            String?
+  providerMessageId    String?
+  nextAttemptAt        DateTime             @default(now())
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  tenant               Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection           WhatsAppConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  conversation         Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message              ConversationMessage  @relation(fields: [conversationMessageId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, providerMessageId])
+  @@index([status, nextAttemptAt])
+  @@map("outbound_messages")
 }

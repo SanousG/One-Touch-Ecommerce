@@ -30,6 +30,7 @@ COPY package.json package-lock.json ./
 COPY prisma.config.ts tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
+COPY worker ./worker
 RUN npx prisma generate
 CMD ["npm", "run", "db:migrate:deploy"]
 

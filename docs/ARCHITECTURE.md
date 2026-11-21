@@ -67,6 +67,14 @@ Permisos: OWNER y OPERATOR crean/editan/guardan y simulan; solo OWNER publica. T
 - Comprobantes privados en `/app/storage/payment-vouchers`, endpoint con sesión y `no-store`.
 - Tienda pública consulta `stockPhysical − stockReserved` y rechaza cantidades sin disponibilidad.
 
+## WhatsApp multiproveedor (Fase 4B)
+
+`src/lib/whatsapp/` define `WhatsAppProvider`, un registro con WasenderAPI disponible y Meta como proveedor futuro no disponible. Los módulos comerciales y de conversaciones no importan el cliente HTTP de Wasender; solo la interfaz.
+
+Conexiones por tenant con credenciales cifradas AES-256-GCM (`WHATSAPP_ENCRYPTION_KEY`), `webhookId` opaco y unicidad global de `externalSessionId`. Webhook autenticado por comparación directa de `X-Webhook-Signature` con el secreto, eventos persistentes en `WebhookEvent` con deduplicación y payload sanitizado (sin `sessionId`).
+
+Contactos, conversaciones, mensajes y eventos son independientes del proveedor. La cola `OutboundMessage` en PostgreSQL es procesada por el servicio `worker` de Docker Compose con claim atómico y reintentos controlados. La bandeja usa sondeo periódico (`router.refresh()` cada 6 s).
+
 ## Relación con fases futuras
 
 Plantilla fija en 3A. La Fase 3B añadirá el editor visual de flujos; las landing seguirán siendo puntos de entrada al producto. El chatbot podrá usar la referencia del mensaje para identificar productos. Inventario y pedidos siguen pendientes.

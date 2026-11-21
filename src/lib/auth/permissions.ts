@@ -48,3 +48,12 @@ export function assertPaymentVerification(role: string) {
 export function assertFulfillmentManager(role: string) {
   return assertRole({ role }, CATALOG_MANAGE_ROLES);
 }
+
+/** WhatsApp: OWNER administra conexiones; ambos atienden la bandeja. */
+export function assertConnectionAdmin(role: string) {
+  return assertRole({ role }, CATALOG_OWNER_ROLES);
+}
+
+export function assertInboxManager(role: string) {
+  return assertRole({ role }, CATALOG_MANAGE_ROLES);
+}

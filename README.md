@@ -1,6 +1,6 @@
 # One-Touch-Ecommerce
 
-Plataforma SaaS multi-tenant: autenticación, catálogo, tienda pública, landings, editor de flujos e **inventario y pedidos operativos**. Todo se ejecuta en Docker Desktop sin `npm run dev`.
+Plataforma SaaS multi-tenant: autenticación, catálogo, tienda pública, landings, flujos de venta, inventario, pedidos y **bandeja de conversaciones de WhatsApp**. Todo se ejecuta en Docker Desktop sin `npm run dev`.
 
 ## Arranque
 
@@ -17,30 +17,36 @@ Panel: http://localhost:3000/login — `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` 
 
 | Ruta | Función |
 |---|---|
-| `/dashboard/products` | Catálogo; acción Crear/Abrir flujo y estado real del flujo |
-| `/dashboard/inventory` | Stock físico, reservado y disponible; ajustes e historial |
-| `/dashboard/orders` | Pedidos; `/orders/new` manual; `/orders/[id]` detalle y acciones |
+| `/dashboard/products` | Catálogo y acción Crear/Abrir flujo |
+| `/dashboard/inventory` | Stock por variante y movimientos |
+| `/dashboard/orders` | Pedidos manuales, adelantos y estados |
 | `/dashboard/landings` | Landings con borrador/publicación |
-| `/dashboard/flows` | Editor visual de flujos de venta |
+| `/dashboard/flows` | Editor visual de flujos |
 | `/dashboard/templates` | Plantillas de mensaje y checkout |
-| `/dashboard/configuracion` | WhatsApp del negocio (solo OWNER) |
+| `/dashboard/conversations` | Bandeja de WhatsApp (3 columnas, actualización automática) |
+| `/dashboard/configuracion/whatsapp` | Conexiones WasenderAPI y webhook |
 
-Flujo comercial: ajustar stock inicial → crear pedido manual (reserva atómica) → adjuntar/verificar adelanto → iniciar preparación → despachar (descuenta stock) → entregar → registrar cobro. El dashboard muestra pendientes reales.
+## WhatsApp
 
-Público: `/tienda/[tenantSlug]`, `/producto/[productSlug]`, `/carrito`, `/landing/[landingSlug]`. Piloto: `/tienda/ganga-online-1dtlkl`.
+1. Crear una sesión en el panel de WasenderAPI (QR) y copiar su Session API Key y Webhook Secret.
+2. Registrarla en `/dashboard/configuracion/whatsapp` con **Guardar y verificar**. Guardar solo no marca la conexión como conectada.
+3. Configurar `WHATSAPP_WEBHOOK_BASE_URL` con una URL HTTPS pública y pegar la URL mostrada en el panel en la sesión de WasenderAPI.
+4. Los mensajes entrantes crean contactos y conversaciones; la bandeja permite tomar, responder, transferir, resolver y crear pedidos manuales precargados.
+
+El futuro chatbot no está implementado. Ver `docs/WHATSAPP_INTEGRATION.md`.
 
 ## Comandos Docker
 
 ```powershell
 docker compose up -d --build
 docker compose logs -f app
+docker compose logs -f worker
 docker compose stop
 docker compose start
 docker compose run --rm migrate
 docker compose run --rm seed
-docker compose run --rm migrate-dev npx prisma migrate dev --name <nombre> --create-only
 ```
 
-Detalle técnico en `docs/ORDER_AND_INVENTORY.md` y `docs/SALES_FLOW_ENGINE.md`.
+## Verificación
 
-Verificación: `npm run lint`, `npm run typecheck`, `npm run build`. Sin pruebas automatizadas.
+`npm run lint`, `npm run typecheck`, `npm run build`. Sin pruebas automatizadas.

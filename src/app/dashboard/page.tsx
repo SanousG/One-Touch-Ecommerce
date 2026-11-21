@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { getAttention, listOrders, requireCommerceActor } from "@/lib/commerce/service";
+import { listConversations, requireInboxActor } from "@/lib/whatsapp/conversations";
+import { getInboxConnectionStatus } from "@/lib/whatsapp/service";
 import { requireDashboardContext } from "@/lib/tenants/context";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +13,13 @@ export default async function DashboardPage() {
   const { user, activeTenant } = await requireDashboardContext();
   if (!activeTenant) redirect("/onboarding");
   const actor = await requireCommerceActor();
-  const [attention, orders] = await Promise.all([getAttention(actor), listOrders(actor)]);
+  const inboxActor = await requireInboxActor();
+  const [attention, orders, conversations, connection] = await Promise.all([
+    getAttention(actor),
+    listOrders(actor),
+    listConversations(inboxActor, "PENDING"),
+    getInboxConnectionStatus(inboxActor),
+  ]);
   const firstName = user.name.split(" ")[0] || user.name;
   const preparing = orders.filter((order) => order.fulfillmentStatus === "PREPARING").length;
 
@@ -24,18 +32,37 @@ export default async function DashboardPage() {
             Hola, {firstName}. Estás viendo <span className="font-medium text-foreground">{activeTenant.name}</span>.
           </p>
         </div>
-        <Link href="/dashboard/orders/new" className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">
-          <Icon name="plus" size={16} /> Nuevo pedido manual
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${connection.verified ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+            WhatsApp: {connection.hasConfiguredConnection ? (connection.verified ? "Conectado" : connection.status.toLowerCase()) : "sin configurar"}
+          </span>
+          <Link href="/dashboard/orders/new" className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white">
+            <Icon name="plus" size={16} /> Nuevo pedido manual
+          </Link>
+        </div>
       </div>
 
       <section className="rounded-xl border border-border bg-surface p-4 shadow-sm md:p-5">
         <div className="mb-4 flex items-center gap-2">
           <h2 className="text-sm font-semibold tracking-tight">Requiere atención</h2>
-          <span className="rounded-full bg-background px-2 py-0.5 text-[11px] text-muted">{attention.length} pendientes</span>
+          <span className="rounded-full bg-background px-2 py-0.5 text-[11px] text-muted">{attention.length + conversations.length} pendientes</span>
         </div>
+        {conversations.length > 0 ? (
+          <div className="mb-3 flex flex-col gap-2">
+            {conversations.slice(0, 5).map((conversation) => (
+              <Link
+                key={conversation.id}
+                href={`/dashboard/conversations?conversation=${conversation.id}`}
+                className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-xs hover:bg-surface-soft"
+              >
+                <span><strong>Conversación por atender</strong> · {conversation.contactName}</span>
+                <span className="truncate pl-2 text-muted">{conversation.lastMessage ?? "Sin mensajes"}</span>
+              </Link>
+            ))}
+          </div>
+        ) : null}
         {attention.length === 0 ? (
-          <EmptyState icon="inbox" title="Todo al día" description="No hay comprobantes por verificar ni pedidos listos para preparar en este negocio." />
+          <EmptyState icon="inbox" title="Todo al día" description="No hay comprobantes por verificar, conversaciones por atender ni pedidos listos para preparar en este negocio." />
         ) : (
           <div className="flex flex-col gap-2">
             {attention.map((item) => (

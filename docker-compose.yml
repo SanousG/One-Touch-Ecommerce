@@ -13,6 +13,10 @@ x-app-env: &app-env
   PRODUCT_UPLOAD_DIR: "/app/storage/product-images"
   # Comprobantes de adelanto: almacenamiento privado, nunca expuesto públicamente.
   VOUCHER_UPLOAD_DIR: "/app/storage/payment-vouchers"
+  # Cifrado de credenciales y base pública del webhook (inyectadas desde .env, nunca en la imagen).
+  WHATSAPP_ENCRYPTION_KEY: ${WHATSAPP_ENCRYPTION_KEY}
+  WHATSAPP_WEBHOOK_BASE_URL: "${WHATSAPP_WEBHOOK_BASE_URL:-}"
+  WASENDER_API_BASE_URL: "${WASENDER_API_BASE_URL:-https://www.wasenderapi.com}"
 
 services:
   db:
@@ -78,6 +82,25 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    networks:
+      - one-touch-network
+
+  # Worker durable: envía mensajes salientes desde la cola en PostgreSQL.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    image: one-touch-ecommerce-migrator:local
+    container_name: one-touch-ecommerce-worker
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      OUTBOX_INTERVAL_MS: "${OUTBOX_INTERVAL_MS:-3000}"
+    command: ["node", "--conditions=react-server", "--import", "tsx", "worker/outbox.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     networks:
       - one-touch-network
 
