@@ -3,6 +3,8 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { requireDashboardContext } from "@/lib/tenants/context";
 
+export const dynamic = "force-dynamic";
+
 const metrics: { label: string; icon: IconName }[] = [
   { label: "Conversaciones iniciadas", icon: "chat" },
   { label: "Pedidos confirmados", icon: "receipt" },

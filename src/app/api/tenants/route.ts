@@ -1,10 +1,10 @@
-import { auth } from "@/lib/auth/auth";
+import { getAuth } from "@/lib/auth/auth";
 import { assertAuthenticated, ForbiddenError, UnauthorizedError } from "@/lib/auth/guards";
 import { createTenantForUser, ValidationError } from "@/lib/tenants/service";
 
 export async function POST(request: Request) {
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
+    const session = await getAuth().api.getSession({ headers: request.headers });
     const user = assertAuthenticated(session);
 
     const body = (await request.json().catch(() => null)) as { name?: unknown } | null;

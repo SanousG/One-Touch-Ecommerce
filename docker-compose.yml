@@ -1,40 +1,106 @@
-# Solo entornos locales de desarrollo y pruebas.
-# Los nombres de contenedores y volúmenes son exclusivos de este proyecto.
+# Entorno local completo: Next.js (standalone) + PostgreSQL + migraciones.
+# El puerto de PostgreSQL no se publica en Windows: solo es accesible desde la red interna.
+name: one-touch-ecommerce
+
+x-app-env: &app-env
+  DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-one_touch_dev}?schema=public"
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+  BETTER_AUTH_URL: "http://localhost:3000"
+  NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+  # Permite cookies sobre HTTP en localhost. En producción usar HTTPS y omitir esta variable.
+  AUTH_COOKIES_SECURE: "${AUTH_COOKIES_SECURE:-false}"
+
 services:
-  postgres-dev:
+  db:
     image: postgres:16-alpine
-    container_name: one-touch-ecommerce-postgres-dev
+    container_name: one-touch-ecommerce-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: one_touch_dev
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-one_touch_dev}
     volumes:
       - one-touch-ecommerce-pgdata-dev:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d one_touch_dev"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-one_touch_dev}"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 15
+    networks:
+      - one-touch-network
 
-  postgres-test:
-    image: postgres:16-alpine
-    container_name: one-touch-ecommerce-postgres-test
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    image: one-touch-ecommerce-migrator:local
+    container_name: one-touch-ecommerce-migrate
+    restart: "no"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: one_touch_test
+      <<: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - one-touch-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    image: one-touch-ecommerce-app:local
+    container_name: one-touch-ecommerce-app
+    restart: unless-stopped
     ports:
-      - "5433:5432"
-    volumes:
-      - one-touch-ecommerce-pgdata-test:/var/lib/postgresql/data
+      - "3000:3000"
+    environment:
+      <<: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d one_touch_test"]
-      interval: 5s
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 12
+      start_period: 20s
+    networks:
+      - one-touch-network
+
+  # Solo se ejecuta de forma explícita: docker compose run --rm seed
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    image: one-touch-ecommerce-migrator:local
+    container_name: one-touch-ecommerce-seed
+    profiles: ["tools"]
+    restart: "no"
+    environment:
+      <<: *app-env
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD}
+      SEED_USER_NAME: ${SEED_USER_NAME:-Administrador}
+      SEED_TENANT_NAME: ${SEED_TENANT_NAME:-Ganga Online}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["node", "--conditions=react-server", "--import", "tsx", "prisma/seed.ts"]
+    networks:
+      - one-touch-network
 
 volumes:
   one-touch-ecommerce-pgdata-dev:
-  one-touch-ecommerce-pgdata-test:
+
+networks:
+  one-touch-network:
+    driver: bridge

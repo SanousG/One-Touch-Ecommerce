@@ -2,8 +2,8 @@ import { config } from "dotenv";
 
 config({ path: ".env" });
 
-import { auth } from "../src/lib/auth/auth";
-import { prisma } from "../src/lib/db/prisma";
+import { getAuth } from "../src/lib/auth/auth";
+import { getPrisma } from "../src/lib/db/prisma";
 import { createTenantForUser } from "../src/lib/tenants/service";
 
 async function main() {
@@ -16,16 +16,16 @@ async function main() {
     throw new Error("Defina SEED_USER_EMAIL y SEED_USER_PASSWORD en .env");
   }
 
-  const context = await auth.$context;
+  const context = await getAuth().$context;
   const passwordHash = await context.password.hash(password);
 
-  const user = await prisma.user.upsert({
+  const user = await getPrisma().user.upsert({
     where: { email },
     create: { email, name },
     update: { name },
   });
 
-  await prisma.account.upsert({
+  await getPrisma().account.upsert({
     where: { providerId_accountId: { providerId: "credential", accountId: user.id } },
     create: {
       providerId: "credential",
@@ -36,7 +36,7 @@ async function main() {
     update: { password: passwordHash },
   });
 
-  const existingMembership = await prisma.tenantMembership.findFirst({
+  const existingMembership = await getPrisma().tenantMembership.findFirst({
     where: { userId: user.id },
   });
   if (!existingMembership) {
@@ -53,5 +53,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await getPrisma().$disconnect();
   });

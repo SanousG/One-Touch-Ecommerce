@@ -4,6 +4,8 @@ import { Icon } from "@/components/ui/icon";
 import { requireUser } from "@/lib/auth/session";
 import { getActiveTenantForUser, listUserTenants } from "@/lib/tenants/service";
 
+export const dynamic = "force-dynamic";
+
 export default async function OnboardingPage() {
   const user = await requireUser();
   const [tenants, activeTenant] = await Promise.all([

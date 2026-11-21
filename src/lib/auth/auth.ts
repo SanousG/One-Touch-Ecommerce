@@ -1,20 +1,20 @@
 import "server-only";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { betterAuth } from "better-auth";
-import { prisma } from "../db/prisma";
+import { getPrisma } from "../db/prisma";
 
-/**
- * Fábrica exported para las pruebas: cada instancia tiene su propio
- * almacén de rate limiting en memoria.
- */
-export function createAuth() {
+function createAuthInstance() {
   const secret = process.env.BETTER_AUTH_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error("BETTER_AUTH_SECRET debe tener al menos 32 caracteres");
   }
 
+  // Por defecto las cookies son Secure. AUTH_COOKIES_SECURE=false está pensado
+  // únicamente para el acceso local por HTTP en Docker; producción debe usar HTTPS.
+  const secureCookies = process.env.AUTH_COOKIES_SECURE !== "false";
+
   return betterAuth({
-    database: prismaAdapter(prisma, { provider: "postgresql" }),
+    database: prismaAdapter(getPrisma(), { provider: "postgresql" }),
     baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     secret,
     emailAndPassword: {
@@ -28,7 +28,7 @@ export function createAuth() {
     },
     user: {
       additionalFields: {
-        // input:false evita que el cliente modify el negocio activo.
+        // input:false evita que el cliente modifique el negocio activo.
         activeTenantId: { type: "string", required: false, input: false },
       },
     },
@@ -46,11 +46,21 @@ export function createAuth() {
       },
     },
     advanced: {
-      useSecureCookies: process.env.NODE_ENV === "production",
+      useSecureCookies: secureCookies,
     },
     trustedOrigins: [process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"],
   });
 }
 
-export const auth = createAuth();
-export type AuthInstance = ReturnType<typeof createAuth>;
+let cachedAuth: ReturnType<typeof createAuthInstance> | null = null;
+
+/**
+ * Inicialización diferida: permite compilar la imagen sin BETTER_AUTH_SECRET.
+ * El secreto se exige en el primer uso en tiempo de ejecución.
+ */
+export function getAuth() {
+  if (!cachedAuth) {
+    cachedAuth = createAuthInstance();
+  }
+  return cachedAuth;
+}

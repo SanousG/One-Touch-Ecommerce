@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+npm-debug.log*
+coverage
+docs
+*.md
+tests
+vitest.config.*
+scripts
+opencode.json
+AGENTS.md
+.vscode
+.eslintcache
+tsconfig.tsbuildinfo

@@ -1,5 +1,5 @@
 import "server-only";
-import { prisma } from "../db/prisma";
+import { getPrisma } from "../db/prisma";
 import { assertRole, assertTenantMembership } from "../auth/guards";
 
 export const OWNER_ROLE = "OWNER" as const;
@@ -53,7 +53,7 @@ function slugify(name: string): string {
 }
 
 async function findMembership(userId: string, tenantId: string) {
-  return prisma.tenantMembership.findUnique({
+  return getPrisma().tenantMembership.findUnique({
     where: { tenantId_userId: { tenantId, userId } },
     include: { tenant: true },
   });
@@ -62,12 +62,12 @@ async function findMembership(userId: string, tenantId: string) {
 /** Lista únicamente los negocios a los que pertenece el usuario. */
 export async function listUserTenants(userId: string): Promise<TenantSummary[]> {
   const [memberships, user] = await Promise.all([
-    prisma.tenantMembership.findMany({
+    getPrisma().tenantMembership.findMany({
       where: { userId },
       include: { tenant: true },
       orderBy: { tenant: { name: "asc" } },
     }),
-    prisma.user.findUnique({ where: { id: userId }, select: { activeTenantId: true } }),
+    getPrisma().user.findUnique({ where: { id: userId }, select: { activeTenantId: true } }),
   ]);
 
   return memberships.map((m) => toSummary(m, user?.activeTenantId ?? null));
@@ -80,7 +80,7 @@ export async function getTenantForUser(userId: string, tenantId: string): Promis
     tenantId,
     userId,
   );
-  const user = await prisma.user.findUnique({
+  const user = await getPrisma().user.findUnique({
     where: { id: userId },
     select: { activeTenantId: true },
   });
@@ -94,8 +94,8 @@ export async function getTenantForUser(userId: string, tenantId: string): Promis
  */
 export async function getActiveTenantForUser(userId: string): Promise<TenantSummary | null> {
   const [user, memberships] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { activeTenantId: true } }),
-    prisma.tenantMembership.findMany({
+    getPrisma().user.findUnique({ where: { id: userId }, select: { activeTenantId: true } }),
+    getPrisma().tenantMembership.findMany({
       where: { userId },
       include: { tenant: true },
       orderBy: { createdAt: "asc" },
@@ -114,7 +114,7 @@ export async function getActiveTenantForUser(userId: string): Promise<TenantSumm
 export async function createTenantForUser(userId: string, input: { name: string }): Promise<TenantSummary> {
   const name = validateName(input.name);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     let slug = slugify(name);
     while (await tx.tenant.findUnique({ where: { slug } })) {
       slug = slugify(name);
@@ -132,7 +132,7 @@ export async function createTenantForUser(userId: string, input: { name: string 
 
 /** Cambia el negocio activo solo después de verificar la membresía. */
 export async function switchTenantForUser(userId: string, tenantId: string): Promise<TenantSummary> {
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const membership = await tx.tenantMembership.findUnique({
       where: { tenantId_userId: { tenantId, userId } },
       include: { tenant: true },

@@ -1,201 +1,157 @@
-# REPORTE FASE 1 — One-Touch-Ecommerce
+# Historial de implementación
 
-Fecha de ejecución: 21 de noviembre de 2026 (hora local).
-Proyecto: `C:\Users\Yeltsin\Documents\SanousG\One-Touch-Ecommerce`.
+## Fase 1 (resumen)
 
----
+Fundación de One-Touch-Ecommerce: Next.js 16 + App Router, TypeScript, Tailwind 4, PostgreSQL con Prisma 7, Better Auth con registro cerrado, roles OWNER/OPERATOR, panel privado con selector de negocio, estados vacíos, seed local y documentación. La base quedó operativa y sin dependencias innecesarias.
 
-## A. Resumen de lo implementado y estado final
+## Fase 1.1 — Dockerización y simplificación
 
-Se construyó desde cero la fundación de la plataforma: Next.js 16 con App Router, TypeScript, Tailwind 4, ESLint, Prisma 7 sobre PostgreSQL, Docker Compose con dos bases independientes, autenticación con Better Auth (correo/contraseña, sesiones en cookies, logout, registro público deshabilitado, rate limiting), arquitectura multi-tenant con roles OWNER/OPERATOR, panel privado con selector de negocio y estados vacíos, flujo de creación/selección de negocio, seed local, 12 pruebas automatizadas y documentación técnica.
+### A. Resultado general
 
-Estado final: **todas las verificaciones ejecutadas pasaron** (lint, TypeScript, 12/12 pruebas, build de producción y migraciones en ambas bases). No se implementó ningún módulo de fases posteriores. No se desplegó la aplicación.
+**Completo.** La plataforma se levanta con `docker compose up -d --build` y está disponible en `http://localhost:3000` sin ejecutar Node, `npm run dev` ni `npm start` en Windows. Se retiró todo el código de pruebas automatizadas y se conservó la funcionalidad de la Fase 1.
 
-## B. Versiones exactas de las tecnologías instaladas
+### B. Archivos creados, eliminados y modificados
 
-| Tecnología | Versión |
-|---|---|
-| Node.js | v24.14.0 |
-| npm | 11.9.0 |
-| Docker | 29.8.0 (build 88096ef) |
-| Docker Compose | v5.5.1 |
-| Next.js | 16.4.6 |
-| React / React DOM | 19.3.0 |
-| TypeScript | 5.9.3 |
-| Tailwind CSS | 4.3.3 |
-| @tailwindcss/turbopack | 4.3.3 |
-| ESLint | 9.39.5 |
-| eslint-config-next | 16.4.6 |
-| Better Auth | 1.7.27 |
-| Prisma / @prisma/client | 7.10.1 |
-| @prisma/adapter-pg | 7.10.1 |
-| pg | 8.16.3 |
-| Vitest | 5.1.1 |
-| tsx | 4.23.15 |
-| dotenv | 17.4.2 |
-| server-only | 0.0.1 |
-| @types/node | 24.19.2 |
-| @types/react / @types/react-dom | 19.3.0 |
-| @types/pg | 8.15.5 |
-| PostgreSQL (imagen Docker) | 16-alpine |
+**Creados**
 
-`npm audit`: **0 vulnerabilidades** (se aplicó un override de `effect` a 3.22.5 para corregir el aviso de ReDoS transitive de `@prisma/config`).
+- `Dockerfile` (multi-stage: `base`, `deps`, `builder`, `migrator`, `runner`).
+- `.dockerignore`.
+- `public/.gitkeep` (directorio público requerido por Next standalone).
 
-## C. Estructura de carpetas y principales archivos creados
+**Eliminados**
 
-```
-src/
-  app/
-    globals.css                     # Tokens Tailwind 4 e Inter
-    layout.tsx / page.tsx           # Root layout y redirección según sesión
-    login/page.tsx                  # Pantalla de login (diseño Stitch)
-    onboarding/page.tsx             # Creación del primer negocio
-    dashboard/layout.tsx            # Shell privado + verificación de sesión
-    dashboard/page.tsx              # Inicio con estados vacíos
-    api/auth/[...all]/route.ts      # Handler de Better Auth
-    api/tenants/route.ts            # POST crear negocio
-    api/tenants/switch/route.ts     # POST cambiar negocio activo
-  components/
-    auth/ (login-form, logout-button)
-    tenants/ (tenant-switcher, create-tenant-form)
-    dashboard/ (sidebar, header, empty-state)
-    ui/icon.tsx                     # 24 iconos SVG propios
-  lib/
-    auth/ (auth, client, guards, session)
-    db/prisma.ts
-    tenants/ (service, context)
-  proxy.ts                          # Filtro optimista de rutas (Next 16)
-prisma/
-  schema.prisma / seed.ts
-  migrations/20261121003339_init/migration.sql
-prisma.config.ts
-docker-compose.yml
-.env.example                        # Plantilla sin secretos
-vitest.config.mts
-scripts/prepare-test-db.mjs
-tests/ (auth.test.ts, tenancy.test.ts, helpers.ts, setup.ts)
-README.md
-docs/ (ARCHITECTURE, DESIGN_SYSTEM, DECISIONS, IMPLEMENTATION_LOG)
-```
+- `tests/` (carpeta completa).
+- `vitest.config.mts`.
+- `scripts/` (`prepare-test-db.mjs` y el directorio).
+- Servicio `postgres-test` y volumen de testing de la configuración de Compose (el volumen real de Docker **no** se borró).
 
-Se conservaron sin modificar `opencode.json` (conexión MCP de Stitch) y `REPORTE_STITCH.md`.
+**Modificados**
 
-## D. Arquitectura multi-tenant y funcionamiento del aislamiento
+- `package.json` y `package-lock.json`: scripts y dependencias de testing retirados.
+- `docker-compose.yml`: servicios `db`, `migrate`, `app` y `seed` (perfil `tools`).
+- `next.config.ts`: `output: "standalone"`.
+- `src/lib/auth/auth.ts`: inicialización diferida, control de cookies por `AUTH_COOKIES_SECURE`.
+- `src/lib/db/prisma.ts`: cliente Prisma diferido (`getPrisma()`).
+- `src/lib/auth/session.ts`, `src/app/api/auth/[...all]/route.ts`, `src/app/api/tenants/route.ts`, `src/app/api/tenants/switch/route.ts`, `prisma/seed.ts`: adaptados a `getAuth()` / `getPrisma()`.
+- `prisma.config.ts`: URL con valor alternativo solo para compilación.
+- Páginas `/`, `/login`, `/dashboard`, `/onboarding`: `force-dynamic`.
+- `.env.example`, `README.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, este archivo.
+- `opencode.json` y `REPORTE_STITCH.md`: sin cambios.
 
-- `TenantMembership` es la fuente de verdad de pertenencia; `User.activeTenantId` es solo la selección y se valida siempre contra las membresías.
-- `createTenantForUser()` crea en una transacción el `Tenant`, la membresía `OWNER` del creador y actualiza su negocio activo.
-- `switchTenantForUser()` verifica la membresía **dentro** de la transacción antes de escribir `activeTenantId`.
-- `getTenantForUser()`, `listUserTenants()` y `assertTenantOwner()` filtran siempre por `userId`.
-- Un ID ajeno en ruta o body devuelve 403; nunca expone datos del otro negocio.
-- El cambio de negocio no mezcla permisos: el rol se lee de la membresía del negocio activo.
-- `proxy.ts` hace solo una comprobación optimista de cookie; la autorización real está en el DAL (`requireUser`) y en los servicios.
+### C. Dependencias de testing eliminadas
 
-## E. Modelos de datos y migraciones
+- `vitest` 5.1.1 (y su árbol transitivo).
+- `@types/pg` 8.15.5.
+- Scripts: `test`, `test:watch`, `db:migrate:test`.
+- Configuración: `vitest.config.mts`.
 
-Tablas: `users`, `sessions`, `accounts`, `verifications` (Better Auth), `tenants`, `tenant_memberships`.
-Enum: `TenantRole { OWNER, OPERATOR }`.
-Restricciones: `users.email` único, `sessions.token` único, `accounts(providerId, accountId)` único, `tenants.slug` único, `tenant_memberships(tenantId, userId)` único; índices en `activeTenantId`, `sessions.userId`, `sessions.expiresAt`, `verifications.identifier`, `verifications.expiresAt`, `(userId, role)` y `(tenantId, role)`; cascadas borrado usuario/negocio → sesiones, cuentas y membresías.
+`npm install` actualizó `package-lock.json`. `npm audit` sigue en 0 vulnerabilidades. No se añadió ningún framework de pruebas.
 
-Migración: `prisma/migrations/20261121003339_init/migration.sql`, aplicada a `one_touch_dev` (5432) y `one_touch_test` (5433).
+### D. Arquitectura Docker implementada
 
-## F. Autenticación y medidas de seguridad implementadas
+- Imagen base `node:24-bookworm-slim` con OpenSSL y certificados (necesarios para Prisma 7).
+- `deps`: `npm ci` reproducible con `package-lock.json`.
+- `builder`: `prisma generate` + `next build` con output standalone.
+- `migrator`: CLI de Prisma, esquema, migraciones y cliente generado; sin entrar en la imagen final.
+- `runner`: usuario no root `nextjs` (uid 1001), copia de `.next/standalone`, `.next/static` y `public`; `node server.js` en `0.0.0.0:3000`.
+- Red bridge `one-touch-network`; PostgreSQL sin publicación de puerto en Windows.
 
-- Correo y contraseña con Better Auth; hash scrypt mediante la primitiva de la biblioteca (`auth.$context.password.hash`).
-- Registro público deshabilitado (`disableSignUp: true`) hasta aprobar el alta de negocios.
-- Sesiones persistentes en cookies httpOnly + SameSite=Lax; `Secure` automático en producción (requiere HTTPS). `cookieCache` desactivado.
-- Rate limiting: 30/min global, 5/min para `/sign-in/email`; verificado con prueba (401 ×5 → 429).
-- Errores de credenciales genéricos e idénticos para usuario inexistente y contraseña incorrecta.
-- `activeTenantId` declarado con `input: false`, por lo que el cliente no puede manipularlo.
-- Rutas privadas protegidas por `proxy` + DAL; verificación en cada página.
-- Contraseñas y secretos solo en `.env` (gitignored); `.env.example` contiene marcadores.
+### E. Servicios y contenedores configurados
 
-## G. Diseños de Stitch utilizados y diferencias frente a los diseños
+| Servicio | Contenedor | Estado observado | Función |
+|---|---|---|---|
+| `db` | `one-touch-ecommerce-db` | Up (healthy) | PostgreSQL 16-alpine, red interna |
+| `migrate` | `one-touch-ecommerce-migrate` | Exited (completado) | `prisma migrate deploy` |
+| `app` | `one-touch-ecommerce-app` | Up (healthy) | Next.js standalone, puerto 3000 |
+| `seed` | `one-touch-ecommerce-seed` | Perfil `tools`, manual | Creación controlada del usuario local |
 
-Consultados exclusivamente mediante el MCP integrado, proyecto `projects/1619124812250481064`:
+### F. Funcionamiento de PostgreSQL y persistencia
 
-- Login: `screens/47969c62b0b846f896c019fd3337c4ab`.
-- Panel: `screens/5483e3738b1949a3a85e23d772853fb8`.
+- Base `one_touch_dev`, usuario definido en `.env`, hostname `db:5432` dentro de la red.
+- Volumen `one-touch-ecommerce-pgdata-dev` reutilizado de la Fase 1; los datos se conservaron.
+- Healthcheck `pg_isready` con 15 reintentos; `db` debe estar healthy antes de migrar y arrancar la app.
+- Nota: existe el volumen histórico `one-touch-ecommerce_one-touch-ecommerce-pgdata-test` de la Fase 1. **No se eliminó.** Tampoco se borraron los contenedores huérfanos `one-touch-ecommerce-postgres-dev` y `one-touch-ecommerce-postgres-test` (quedaron detenidos).
 
-Se analizaron componentes, rejilla, paleta y jerarquía; no se copió HTML. Diferencias principales:
+### G. Funcionamiento de Prisma y migraciones
 
-1. “Ganga Online” dejó de ser fija: el selector muestra el negocio activo resuelto en servidor.
-2. No se muestran cifras de ventas, conversaciones ni pedidos: estados vacíos con guiones.
-3. El estado “WhatsApp Sincronizado” se cambió por “WhatsApp · próximamente” (módulo no implementado).
-4. Las entradas de navegación futuras están deshabilitadas con etiqueta “Pronto”.
-5. Paleta Stitch (`#faf8ff` / `#3525cd`) ajustada a la base indicada (`#F8FAFC` / `#4F46E5`).
-6. Iconos Material Symbols sustituidos por SVG propios; Inter se carga por `@import` de Google Fonts.
+- `migrate` ejecuta `npm run db:migrate:deploy` → `prisma migrate deploy`.
+- Salida real: «1 migration found in prisma/migrations» → «No pending migrations to apply» (la migración ya estaba aplicada en el volumen conservado).
+- Verificación en BD: `_prisma_migrations` contiene `20261121003339_init` con `finished_at` del 21/11/2026.
+- No se usó `db push`, no se regeneró la migración inicial y no se ejecutaron borrados.
 
-Detalle completo en `docs/DESIGN_SYSTEM.md`. No se guardaron archivos de credenciales de Stitch.
+### H. Estado de autenticación y multi-tenancy
 
-## H. Pruebas ejecutadas, resultados reales, errores y advertencias
+Conservado sin cambios funcionales: login/logout de Better Auth, sesiones en cookies, hash scrypt, registro cerrado, rate limiting, roles OWNER/OPERATOR, selector de negocio y protección cross-tenant.
 
-| Comando | Resultado |
-|---|---|
-| `npm run lint` | ✅ 0 errores, 0 advertencias |
-| `npm run typecheck` | ✅ sin errores |
-| `npm test` | ✅ 2 archivos, 12/12 pruebas, 2.77 s |
-| `npm run build` | ✅ compilación y 8 páginas generadas; rutas dinámicas correctas |
-| `npm run db:migrate` | ✅ migración aplicada a BD de desarrollo |
-| `npm run db:migrate:test` | ✅ migración aplicada a BD de pruebas |
-| `npm run db:seed` | ✅ usuario local y negocio de demostración creados |
-| `npm audit` | ✅ 0 vulnerabilidades |
-| Prueba de humo HTTP local (`npm run dev`) | ✅ `/login` 200; `/dashboard` anónimo 307 → `/login`; login 200 + cookie; `/dashboard` autenticado 200 con “Resumen de hoy”, negocio activo y estados vacíos |
+En Docker local se usa `AUTH_COOKIES_SECURE=false`, por lo que la cookie es `better-auth.session_token` (funciona sobre HTTP). El valor por defecto del código sigue siendo `Secure`; producción debe usar HTTPS y no definir esa variable.
 
-Escenario de pruebas: dos negocios (`Negocio A`, `Negocio B`) y dos usuarios distintos (OWNER de cada uno); el usuario A es además OPERATOR en B. Casos cubiertos: anónimo rechazado, login válido/inválido, logout, registro público cerrado, rate limit, creación con OWNER, cambio autorizado, rechazo de negocio ajeno, rechazo sin rol OWNER, aislamiento de listados/active tenant/membresías y unicidad de membresía.
-
-Incidencias encontradas y resueltas:
-
-1. Vitest 3 y Prisma 6 presentaban avisos de seguridad → se migró a Vitest 5.1.1 y Prisma 7.10.1 con adapter `pg`; se añadió `override` de `effect`.
-2. Prisma 7 no carga `.env` en `prisma.config.ts` → se añadió `dotenv.config()`.
-3. El seed importaba módulos `server-only` desde Node → se instaló `server-only` y se ejecuta con `--env-file` y `--conditions=react-server`.
-4. La prueba de rate limit llamaba a `auth.api.signInEmail`, que omite el middleware del router → se cambió al handler HTTP real (`auth.handler`), confirmando 429.
-5. Aviso de Vite sobre configuración ESM → `vitest.config.ts` renombrado a `.mts`.
-6. Al probar `npm start` sobre HTTP, las cookies `Secure` no se reenvían (comportamiento esperado); la verificación funcional se realizó con `npm run dev`. En producción se requiere HTTPS.
-
-## I. Instrucciones exactas para levantar el sistema en Windows PowerShell
+### I. Comandos exactos en PowerShell
 
 ```powershell
 cd "C:\Users\Yeltsin\Documents\SanousG\One-Touch-Ecommerce"
-Copy-Item .env.example .env
-notepad .env
+docker compose up -d --build
+docker compose ps
+docker compose logs -f app
+docker compose stop
+docker compose start
 ```
 
-En `.env` define `POSTGRES_PASSWORD`, `DATABASE_URL`, `TEST_DATABASE_URL`, `BETTER_AUTH_SECRET` (≥ 32 caracteres), `SEED_USER_EMAIL`, `SEED_USER_PASSWORD`, `SEED_USER_NAME` y `SEED_TENANT_NAME`. Genera el secreto con:
+Migraciones y seed:
 
 ```powershell
-[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }) -as [byte[]])
+docker compose run --rm migrate
+docker compose run --rm seed
 ```
 
-Después:
+Tras cambios de código: `docker compose up -d --build`.
 
-```powershell
-docker compose up -d
-npm ci
-npm run db:generate
-npm run db:migrate
-npm run db:migrate:test
-npm run db:seed
-npm run dev
-```
+### J. Validaciones realizadas y resultados reales
 
-El usuario local de prueba se crea con el seed usando únicamente las variables `SEED_USER_EMAIL` y `SEED_USER_PASSWORD` de `.env`; sus valores no se reproducen en este reporte. Ingresa en http://localhost:3000 con esas credenciales. Para verificar: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.
+| Validación | Resultado |
+|---|---|
+| `docker compose config --quiet` | ✅ válido |
+| `docker compose up -d --build` | ✅ imágenes `app` y `migrator` construidas; contenedores creados |
+| `docker compose ps` | ✅ `db` y `app` Up (healthy); `migrate` Exited correctamente |
+| `npm run lint` | ✅ 0 errores, 0 advertencias |
+| `npm run typecheck` | ✅ sin errores |
+| `npm run build` | ✅ standalone generado; 4 páginas dinámicas + `_not-found` |
+| `npm audit` | ✅ 0 vulnerabilidades |
+| Migraciones | ✅ `20261121003339_init` registrada en `_prisma_migrations` |
+| `GET /login` | ✅ 200, contiene el formulario |
+| `GET /dashboard` anónimo | ✅ 307 → `/login?next=%2Fdashboard` |
+| `POST /api/auth/sign-in/email` | ✅ 200, cookie `better-auth.session_token` |
+| `GET /api/auth/get-session` | ✅ sesión válida con `activeTenantId` |
+| `GET /dashboard` autenticado | ✅ 200, “Resumen de hoy”, estado vacío y negocio activo |
+| `POST /api/tenants/switch` negocio propio | ✅ 200 |
+| `POST /api/tenants/switch` negocio ajeno | ✅ 403 `No pertenece a ese negocio` |
+| Login de segundo negocio | ✅ 200 y dashboard muestra “Negocio B local” |
+| `docker compose logs app` | ✅ sin errores ni advertencias críticas |
 
-## J. Problemas encontrados, decisiones técnicas y cambios propuestos
+No se crearon archivos de pruebas ni se instaló ningún framework de testing.
 
-Ver `docs/DECISIONS.md`. Decisiones críticas: Better Auth con registro cerrado, DAL centralizado, guardas puras, Route Handlers delgados sobre servicios, BD de pruebas real, estados vacíos. Cambios propuestos: almacenamiento de rate limit en `secondaryStorage` para múltiples instancias, modelo `AuditLog` con `tenantId` si se requiere trazabilidad, y flujo de invitación de operadores cuando se apruebe el alta de negocios.
+### K. Problemas encontrados y soluciones aplicadas
 
-## K. Funcionalidades que quedaron pendientes
+1. `prisma generate` fallaba en el build por falta de `DATABASE_URL` → `prisma.config.ts` usa un valor alternativo solo para compilación; en runtime Compose inyecta la URL real con hostname `db`.
+2. El prerenderizado de `/` exigía `BETTER_AUTH_SECRET` → inicialización diferida de Better Auth y `force-dynamic` en las páginas que usan sesión.
+3. `PrismaClient` se creaba al importar → cliente diferido (`getPrisma()`).
+4. El servicio `seed` no encontraba `.prisma/client` → se añadió `npx prisma generate` a la etapa `migrator`.
+5. Advertencia de contenedores huérfanos de la Fase 1 → se detuvieron sin eliminarlos; el volumen de testing se conservó.
+6. Cookies `Secure` sobre HTTP local → `AUTH_COOKIES_SECURE=false` explícito solo en el entorno local.
 
-Catálogo de productos, carrito, tienda pública, landings de campaña, editor visual de diagramas, WhatsApp, chatbot IA, pedidos, inventario, pagos y publicación en redes. Tampoco hay interfaz para invitar operadores ni panel de administración de membresías.
+### L. Estado final de Docker Compose
 
-## L. Recomendaciones para la siguiente fase (sin implementar)
+Dos contenedores activos y saludables (`app`, `db`), `migrate` completado, `seed` bajo perfil `tools`. Sin puertos de PostgreSQL expuestos. Sin volúmenes ni contenedores eliminados.
 
-1. Definir el contrato `tenantId` obligatorio para todos los modelos nuevos y reutilizar `requireDashboardContext()`.
-2. Aprobación del flujo de incorporación de negocios antes de habilitar registro o invitaciones.
-3. Diseñar el editor visual como módulo independiente con persistencia versionada por tenant.
-4. Introducir `AuditLog` y `secondaryStorage` antes de escalar a varias instancias.
-5. Añadir E2E con Playwright cuando existan módulos con interacción real.
+### M. Estado de Git
 
-## M. Identificación de archivos modificados y estado de Git
+Cambios de la Fase 1.1 confirmados en un commit con mensaje «Fase 1.1: dockerizacion y simplificacion». `.env`, `node_modules`, `.next` y `.git` quedan fuera del repositorio/imagen. `opencode.json` y la conexión MCP de Stitch permanecen intactos.
 
-El directorio no era un repositorio Git; se inicializó uno para dejar trazabilidad. Commit único: “Fase 1: fundacion multi-tenant, autenticacion y panel” (54 archivos). `.env`, `node_modules` y `.next` están excluidos por `.gitignore`. `opencode.json` y `REPORTE_STITCH.md` se conservaron. No se modificaron otros repositorios.
+### N. Recomendaciones para la siguiente fase
+
+1. Definir `tenantId` obligatorio en cada modelo nuevo y usar `requireDashboardContext()`.
+2. Aprobar el flujo de alta de negocios antes de habilitar registro o invitaciones.
+3. Añadir `AuditLog` y almacenamiento externo para rate limiting antes de escalar réplicas.
+4. Servir por HTTPS en producción y retirar `AUTH_COOKIES_SECURE=false`.
+5. Incorporar verificación E2E solo cuando existan módulos con interacción real.
+
+No se avanzó a la Fase 2 ni se añadieron funcionalidades nuevas.

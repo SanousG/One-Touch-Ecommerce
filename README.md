@@ -1,98 +1,101 @@
-# One-Touch-Ecommerce — Fase 1
+# One-Touch-Ecommerce
 
-Plataforma SaaS multi-tenant para tiendas online, landings, flujos de venta, conversaciones de WhatsApp y pedidos. Esta entrega contiene **únicamente la fundación**: autenticación, multi-tenancy, panel principal y diagnosticos. Los módulos de negocio se implementarán en fases posteriores.
+Plataforma SaaS multi-tenant para tiendas online, landings, flujos de venta, conversaciones de WhatsApp y pedidos. Esta entrega contiene la fundación (Fase 1) y su entorno de ejecución Dockerizado (Fase 1.1): autenticación, multi-tenancy, panel principal, PostgreSQL y migraciones automáticas.
 
-## Requisitos verificados
+**No es necesario instalar Node.js en Windows ni ejecutar `npm run dev` o `npm start`.** La aplicación se sirve desde un contenedor.
 
-| Herramienta | Versión comprobada |
-|---|---|
-| Node.js | v24.14.0 |
-| npm | 11.9.0 |
-| Docker | 29.8.0 (build 88096ef) |
-| Docker Compose | v5.5.1 |
+## Requisitos
 
-## Instalación en Windows PowerShell
+- Docker Desktop en ejecución.
+- Puertos libres: `3000` (aplicación). PostgreSQL no se publica en Windows.
 
-1. Ubícate en la carpeta del proyecto:
+## Puesta en marcha
+
+Desde la carpeta del proyecto, en PowerShell:
 
 ```powershell
 cd "C:\Users\Yeltsin\Documents\SanousG\One-Touch-Ecommerce"
-```
-
-2. Copia la plantilla de entorno y complétala:
-
-```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-genera un secreto de Better Auth de al menos 32 caracteres:
+Completa `POSTGRES_PASSWORD`, `BETTER_AUTH_SECRET` (≥ 32 caracteres), `SEED_USER_EMAIL`, `SEED_USER_PASSWORD`, `SEED_USER_NAME` y `SEED_TENANT_NAME`. Puedes generar el secreto con:
 
 ```powershell
 [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }) -as [byte[]])
 ```
 
-Define `POSTGRES_PASSWORD`, `DATABASE_URL`, `TEST_DATABASE_URL`, `BETTER_AUTH_SECRET`, `SEED_USER_EMAIL` y `SEED_USER_PASSWORD`. **No compartas el contenido de `.env`.**
-
-3. Levanta PostgreSQL de desarrollo (5432) y de pruebas (5433):
+Después levanta todo:
 
 ```powershell
-docker compose up -d
+docker compose up -d --build
 docker compose ps
 ```
 
-4. Instala dependencias y prepara la base de datos:
+Abre **http://localhost:3000**. Serás redirigido a `/login`.
+
+> `AUTH_COOKIES_SECURE=false` en `.env` permite que las cookies funcionen por HTTP en localhost. En un despliegue real, elimina esa variable y sirve la aplicación por HTTPS.
+
+## Comandos habituales
 
 ```powershell
-npm ci
-npm run db:generate
-npm run db:migrate
-npm run db:migrate:test
-npm run db:seed
+docker compose up -d --build      # construir/actualizar imágenes y arrancar
+docker compose ps                 # estado de contenedores
+docker compose logs -f app        # logs de Next.js en tiempo real
+docker compose stop               # detener sin borrar nada
+docker compose start              # volver a arrancar
 ```
 
-5. Arranca la aplicación:
+Cuando cambie el código fuente, vuelve a construir:
 
 ```powershell
-npm run dev
+docker compose up -d --build
 ```
 
-Abre http://localhost:3000. Serás redirigido a `/login`. Ingresa con el correo y la contraseña que definiste en `.env` (`SEED_USER_EMAIL` / `SEED_USER_PASSWORD`). El seed crea también el negocio de demostración indicado en `SEED_TENANT_NAME`.
+La imagen usa `output: "standalone"` de Next.js; `docker compose start` reutiliza la imagen ya construida.
 
-## Verificación
+## Migraciones
+
+El servicio `migrate` ejecuta `prisma migrate deploy` usando las migraciones existentes antes de arrancar la aplicación. Usa el hostname interno `db`. No se usa `db push` y no se ejecuta seed automáticamente.
+
+Para volver a aplicar migraciones manualmente:
 
 ```powershell
-npm run lint
-npm run typecheck
-npm test
-npm run build
+docker compose run --rm migrate
 ```
 
-Para producción, la app usa cookies `Secure`; por ello debe servirse sobre HTTPS. En local usa `npm run dev` (HTTP).
+## Usuario inicial (seed controlado)
 
-## Comandos útiles
+El arranque **no** crea usuarios. Para crear el usuario local y su negocio:
 
-| Comando | Descripción |
-|---|---|
-| `npm run db:studio` | Explorador visual de Prisma |
-| `npm run db:migrate -- --name <nombre>` | Nueva migración |
-| `npm run test:watch` | Pruebas en modo observación |
-| `docker compose down` | Detener los contenedores del proyecto |
-
-## Estructura
-
-```
-src/
-  app/                 # App Router: login, onboarding, dashboard, API
-  components/          # UI reutilizable (auth, tenants, dashboard, ui)
-  lib/
-    auth/              # Better Auth, guards y DAL de sesión
-    db/                # Cliente Prisma
-    tenants/           # Servicios multi-tenant y contexto
-  proxy.ts             # Comprobación optimista de rutas (Next 16)
-prisma/                # Esquema, migraciones y seed
-tests/                 # Pruebas de autenticación y aislamiento
-docs/                  # Documentación técnica
+```powershell
+docker compose run --rm seed
 ```
 
-La documentación completa está en `docs/`. El informe de la Fase 1 está en `docs/IMPLEMENTATION_LOG.md`.
+El seed lee `SEED_*` de `.env` y es idempotente (si el usuario ya existe y tiene un negocio, no hace nada). No necesitas npm en Windows.
+
+Para crear un segundo usuario/negocio sin editar `.env`:
+
+```powershell
+docker compose run --rm -e SEED_USER_EMAIL=otro@local.test -e SEED_TENANT_NAME="Otro Negocio" seed
+```
+
+## Verificación técnica sin tests
+
+```powershell
+docker compose exec app node -e "fetch('http://127.0.0.1:3000/login').then(r=>console.log(r.status))"
+docker compose logs app
+```
+
+Si necesitas lint, typecheck o build directos en Windows (opcional), con Node 24 instalado: `npm run lint`, `npm run typecheck`, `npm run build`.
+
+## Servicios
+
+| Servicio | Contenedor | Función | Red |
+|---|---|---|---|
+| `app` | `one-touch-ecommerce-app` | Next.js standalone en `0.0.0.0:3000` | `one-touch-network` |
+| `db` | `one-touch-ecommerce-db` | PostgreSQL 16-alpine, volumen persistente | `one-touch-network` |
+| `migrate` | `one-touch-ecommerce-migrate` | `prisma migrate deploy` (unica ejecución) | `one-touch-network` |
+| `seed` | `one-touch-ecommerce-seed` | Seed manual (perfil `tools`) | `one-touch-network` |
+
+El puerto de PostgreSQL no se publica en el host. La documentación técnica está en `docs/`.
