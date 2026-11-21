@@ -11,7 +11,7 @@ type NavItem = { label: string; icon: IconName; href?: string };
 
 const items: NavItem[] = [
   { label: "Inicio", icon: "grid", href: "/dashboard" },
-  { label: "Productos", icon: "inventory" },
+  { label: "Productos", icon: "inventory", href: "/dashboard/products" },
   { label: "Tienda y landings", icon: "storefront" },
   { label: "Conversaciones", icon: "chat" },
   { label: "Pedidos", icon: "receipt" },

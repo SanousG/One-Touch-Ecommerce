@@ -1,101 +1,72 @@
 # One-Touch-Ecommerce
 
-Plataforma SaaS multi-tenant para tiendas online, landings, flujos de venta, conversaciones de WhatsApp y pedidos. Esta entrega contiene la fundación (Fase 1) y su entorno de ejecución Dockerizado (Fase 1.1): autenticación, multi-tenancy, panel principal, PostgreSQL y migraciones automáticas.
+Plataforma SaaS multi-tenant: autenticación, negocios aislados, panel administrativo y **catálogo de productos** (Fase 2A). Todo se ejecuta en Docker Desktop; no hace falta Node.js en Windows ni `npm run dev`.
 
-**No es necesario instalar Node.js en Windows ni ejecutar `npm run dev` o `npm start`.** La aplicación se sirve desde un contenedor.
-
-## Requisitos
-
-- Docker Desktop en ejecución.
-- Puertos libres: `3000` (aplicación). PostgreSQL no se publica en Windows.
-
-## Puesta en marcha
-
-Desde la carpeta del proyecto, en PowerShell:
+## Arranque
 
 ```powershell
 cd "C:\Users\Yeltsin\Documents\SanousG\One-Touch-Ecommerce"
-Copy-Item .env.example .env
-notepad .env
-```
-
-Completa `POSTGRES_PASSWORD`, `BETTER_AUTH_SECRET` (≥ 32 caracteres), `SEED_USER_EMAIL`, `SEED_USER_PASSWORD`, `SEED_USER_NAME` y `SEED_TENANT_NAME`. Puedes generar el secreto con:
-
-```powershell
-[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }) -as [byte[]])
-```
-
-Después levanta todo:
-
-```powershell
+Copy-Item .env.example .env   # solo la primera vez; completar valores
 docker compose up -d --build
 docker compose ps
 ```
 
-Abre **http://localhost:3000**. Serás redirigido a `/login`.
+Abre **http://localhost:3000** e inicia sesión con `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` de `.env` (crea el usuario con `docker compose run --rm seed` si aún no existe).
 
-> `AUTH_COOKIES_SECURE=false` en `.env` permite que las cookies funcionen por HTTP en localhost. En un despliegue real, elimina esa variable y sirve la aplicación por HTTPS.
+En local se usa `AUTH_COOKIES_SECURE=false` para que las cookies funcionen por HTTP. En producción: HTTPS y sin esa variable.
 
-## Comandos habituales
+## Comandos
 
 ```powershell
-docker compose up -d --build      # construir/actualizar imágenes y arrancar
-docker compose ps                 # estado de contenedores
-docker compose logs -f app        # logs de Next.js en tiempo real
-docker compose stop               # detener sin borrar nada
-docker compose start              # volver a arrancar
+docker compose up -d --build      # reconstruir tras cambios de código
+docker compose ps
+docker compose logs -f app
+docker compose stop
+docker compose start
+docker compose run --rm migrate   # reaplicar migraciones existentes
+docker compose run --rm seed      # crear usuario/negocio local (idempotente)
 ```
 
-Cuando cambie el código fuente, vuelve a construir:
+Para generar una migración nueva durante el desarrollo (bind mount del host):
 
 ```powershell
+docker compose run --rm migrate-dev npx prisma migrate dev --name <nombre> --create-only
 docker compose up -d --build
 ```
 
-La imagen usa `output: "standalone"` de Next.js; `docker compose start` reutiliza la imagen ya construida.
+## Catálogo (Fase 2A)
 
-## Migraciones
+Rutas: `/dashboard/products` (listado) y `/dashboard/products/[id]` (edición).
 
-El servicio `migrate` ejecuta `prisma migrate deploy` usando las migraciones existentes antes de arrancar la aplicación. Usa el hostname interno `db`. No se usa `db push` y no se ejecuta seed automáticamente.
+- Productos por negocio con slug único por tenant, categoría, descripción, estado `DRAFT`/`ACTIVE`/`ARCHIVED` y visibilidad en tienda.
+- Variantes con SKU único por negocio, precio `DECIMAL(12,2)` en soles y campos de stock reservados para el inventario futuro.
+- Categorías por negocio.
+- Galería de imágenes: subida (JPEG/PNG/WebP, máx. 5 MB con validación de cabecera), portada, reordenado y eliminación.
+- Búsqueda por nombre o SKU y filtros por categoría y visibilidad.
+- No hay eliminación física de productos; solo archivado (reservado a `OWNER`).
 
-Para volver a aplicar migraciones manualmente:
+Permisos iniciales: `OWNER` y `OPERATOR` pueden administrar productos, variantes, imágenes, categorías y visibilidad. Solo `OWNER` puede archivar/restaurar.
 
-```powershell
-docker compose run --rm migrate
-```
-
-## Usuario inicial (seed controlado)
-
-El arranque **no** crea usuarios. Para crear el usuario local y su negocio:
-
-```powershell
-docker compose run --rm seed
-```
-
-El seed lee `SEED_*` de `.env` y es idempotente (si el usuario ya existe y tiene un negocio, no hace nada). No necesitas npm en Windows.
-
-Para crear un segundo usuario/negocio sin editar `.env`:
-
-```powershell
-docker compose run --rm -e SEED_USER_EMAIL=otro@local.test -e SEED_TENANT_NAME="Otro Negocio" seed
-```
-
-## Verificación técnica sin tests
-
-```powershell
-docker compose exec app node -e "fetch('http://127.0.0.1:3000/login').then(r=>console.log(r.status))"
-docker compose logs app
-```
-
-Si necesitas lint, typecheck o build directos en Windows (opcional), con Node 24 instalado: `npm run lint`, `npm run typecheck`, `npm run build`.
+Las imágenes se guardan en el volumen Docker `one-touch-ecommerce-product-uploads` montado en `/app/storage`; sobreviven a reconstrucciones. Endpoints:
+- Privados: `/api/admin/products/...` (requieren sesión y negocio activo validado).
+- Público futuro: `/api/images/[imageId]/file` (solo productos `ACTIVE` y visibles en tienda).
 
 ## Servicios
 
-| Servicio | Contenedor | Función | Red |
-|---|---|---|---|
-| `app` | `one-touch-ecommerce-app` | Next.js standalone en `0.0.0.0:3000` | `one-touch-network` |
-| `db` | `one-touch-ecommerce-db` | PostgreSQL 16-alpine, volumen persistente | `one-touch-network` |
-| `migrate` | `one-touch-ecommerce-migrate` | `prisma migrate deploy` (unica ejecución) | `one-touch-network` |
-| `seed` | `one-touch-ecommerce-seed` | Seed manual (perfil `tools`) | `one-touch-network` |
+| Servicio | Función |
+|---|---|
+| `app` | Next.js standalone, `0.0.0.0:3000`, publicado en `localhost:3000` |
+| `db` | PostgreSQL 16, red interna `db:5432`, sin puerto en Windows |
+| `migrate` | `prisma migrate deploy` antes de arrancar `app` |
+| `migrate-dev` | Generación de migraciones en el host (perfil `tools`) |
+| `seed` | Usuario local manual (perfil `tools`) |
 
-El puerto de PostgreSQL no se publica en el host. La documentación técnica está en `docs/`.
+## Verificación técnica
+
+```powershell
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Sin suites de pruebas automatizadas. Más detalle en `docs/`.

@@ -24,7 +24,21 @@ export type IconName =
   | "eye"
   | "eyeOff"
   | "plus"
-  | "inbox";
+  | "inbox"
+  | "edit"
+  | "folder"
+  | "image"
+  | "star"
+  | "trash"
+  | "archive"
+  | "upload"
+  | "chevronRight"
+  | "sort"
+  | "filter"
+  | "tag"
+  | "moveLeft"
+  | "moveRight"
+  | "box";
 
 const paths: Record<IconName, React.ReactNode> = {
   hub: <><circle cx="12" cy="12" r="3" /><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 6.5 10 10M17 6.5 14 10M7 17.5 10 14" /></>,
@@ -51,6 +65,20 @@ const paths: Record<IconName, React.ReactNode> = {
   eyeOff: <><path d="M3 3l18 18M10.6 6.2A10 10 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3.3 3.7M6.3 8.2A17 17 0 0 0 2 12s3.5 6 10 6a10 10 0 0 0 3.6-.6" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   inbox: <><path d="M4 5h16l2 10v4H2v-4L4 5Z" /><path d="M2 15h5l1.5 3h7L17 15h5" /></>,
+  edit: <><path d="m4 16 10-10 4 4L8 20H4v-4Z" /><path d="m14 6 2-2a1.4 1.4 0 0 1 2 2l-2 2" /></>,
+  folder: <path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z" />,
+  image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="m21 16-5-5L5 20" /></>,
+  star: <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3Z" />,
+  trash: <><path d="M4 7h16M9 7V5h6v2M6 7l1 14h10l1-14" /><path d="M10 11v6M14 11v6" /></>,
+  archive: <><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v12h14V8M10 12h4" /></>,
+  upload: <><path d="M12 16V4m-5 5 5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></>,
+  chevronRight: <path d="m9 6 6 6-6 6" />,
+  sort: <><path d="M4 7h10M4 12h7M4 17h4" /><path d="m16 14 3 3 3-3M19 17V7" /></>,
+  filter: <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />,
+  tag: <><path d="M3 12V4h8l10 10-8 8L3 12Z" /><circle cx="7.5" cy="7.5" r="1" /></>,
+  moveLeft: <path d="M19 12H5m6-6-6 6 6 6" />,
+  moveRight: <path d="M5 12h14m-6-6 6 6-6 6" />,
+  box: <><path d="m3 7 9-4 9 4-9 4-9-4Z" /><path d="M3 7v10l9 4 9-4V7M12 11v10" /></>,
 };
 
 type IconProps = SVGProps<SVGSVGElement> & { name: IconName; size?: number };

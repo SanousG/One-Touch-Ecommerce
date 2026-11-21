@@ -9,6 +9,8 @@ x-app-env: &app-env
   NEXT_PUBLIC_APP_URL: "http://localhost:3000"
   # Permite cookies sobre HTTP en localhost. En producción usar HTTPS y omitir esta variable.
   AUTH_COOKIES_SECURE: "${AUTH_COOKIES_SECURE:-false}"
+  # Almacenamiento de imágenes de catálogo (volumen persistente del proyecto).
+  PRODUCT_UPLOAD_DIR: "/app/storage/product-images"
 
 services:
   db:
@@ -55,6 +57,8 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    volumes:
+      - one-touch-ecommerce-product-uploads:/app/storage
     environment:
       <<: *app-env
     depends_on:
@@ -72,6 +76,26 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    networks:
+      - one-touch-network
+
+  # Utilidad de desarrollo: crea migraciones en el directorio del host.
+  migrate-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    image: one-touch-ecommerce-migrator:local
+    profiles: ["tools"]
+    restart: "no"
+    environment:
+      <<: *app-env
+    volumes:
+      - ./prisma:/app/prisma
+      - ./prisma.config.ts:/app/prisma.config.ts
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - one-touch-network
 
@@ -100,6 +124,7 @@ services:
 
 volumes:
   one-touch-ecommerce-pgdata-dev:
+  one-touch-ecommerce-product-uploads:
 
 networks:
   one-touch-network:

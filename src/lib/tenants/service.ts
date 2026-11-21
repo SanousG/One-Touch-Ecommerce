@@ -59,6 +59,18 @@ async function findMembership(userId: string, tenantId: string) {
   });
 }
 
+/** Rol del usuario en un negocio concreto. Devuelve null si no pertenece. */
+export async function getMembershipRole(
+  userId: string,
+  tenantId: string,
+): Promise<TenantSummary["role"] | null> {
+  const membership = await getPrisma().tenantMembership.findUnique({
+    where: { tenantId_userId: { tenantId, userId } },
+    select: { role: true },
+  });
+  return membership?.role ?? null;
+}
+
 /** Lista únicamente los negocios a los que pertenece el usuario. */
 export async function listUserTenants(userId: string): Promise<TenantSummary[]> {
   const [memberships, user] = await Promise.all([

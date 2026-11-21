@@ -1,0 +1,15 @@
+import "server-only";
+import { assertRole } from "./guards";
+
+/** Permisos iniciales del módulo de catálogo (sin RBAC avanzado). */
+export const CATALOG_MANAGE_ROLES = ["OWNER", "OPERATOR"] as const;
+/** Archivar/restaurar y fluctuar categorías se reserva al propietario. */
+export const CATALOG_OWNER_ROLES = ["OWNER"] as const;
+
+export function assertCatalogManager(role: string) {
+  return assertRole({ role }, CATALOG_MANAGE_ROLES);
+}
+
+export function assertCatalogOwner(role: string) {
+  return assertRole({ role }, CATALOG_OWNER_ROLES);
+}

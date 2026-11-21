@@ -1,157 +1,155 @@
 # Historial de implementación
 
-## Fase 1 (resumen)
+## Fase 1 y 1.1 (resumen)
 
-Fundación de One-Touch-Ecommerce: Next.js 16 + App Router, TypeScript, Tailwind 4, PostgreSQL con Prisma 7, Better Auth con registro cerrado, roles OWNER/OPERATOR, panel privado con selector de negocio, estados vacíos, seed local y documentación. La base quedó operativa y sin dependencias innecesarias.
+Base multi-tenant con Better Auth, panel privado, Docker Compose (app/db/migrate/seed), volúmenes persistentes y migración inicial. Sin código de pruebas automatizadas.
 
-## Fase 1.1 — Dockerización y simplificación
+## Fase 2A — Catálogo administrativo
 
-### A. Resultado general
+### A. Resumen de implementación
 
-**Completo.** La plataforma se levanta con `docker compose up -d --build` y está disponible en `http://localhost:3000` sin ejecutar Node, `npm run dev` ni `npm start` en Windows. Se retiró todo el código de pruebas automatizadas y se conservó la funcionalidad de la Fase 1.
+Se añadió un catálogo administrativo por negocio con productos, categorías, variantes y galería de imágenes. Se implementaron las dos vistas aprobadas en Stitch (listado y edición) con componentes React/Tailwind propios, una API privada verificada por tenant y una superficie pública de imágenes preparada para la tienda futura. Todo funciona dentro de Docker; no se añadieron pruebas automatizadas.
 
-### B. Archivos creados, eliminados y modificados
+### B. Archivos creados y modificados
 
-**Creados**
+**Creados (modelo y lógica)**
 
-- `Dockerfile` (multi-stage: `base`, `deps`, `builder`, `migrator`, `runner`).
-- `.dockerignore`.
-- `public/.gitkeep` (directorio público requerido por Next standalone).
+- `prisma/migrations/20261121014930_catalog/migration.sql`.
+- `src/lib/utils/slug.ts`, `src/lib/auth/permissions.ts`.
+- `src/lib/catalog/service.ts`, `src/lib/catalog/http.ts`.
+- `src/lib/storage/product-images.ts`.
 
-**Eliminados**
+**Creados (API)**
 
-- `tests/` (carpeta completa).
-- `vitest.config.mts`.
-- `scripts/` (`prepare-test-db.mjs` y el directorio).
-- Servicio `postgres-test` y volumen de testing de la configuración de Compose (el volumen real de Docker **no** se borró).
+- `src/app/api/admin/products/route.ts`
+- `src/app/api/admin/products/[id]/route.ts`
+- `src/app/api/admin/products/[id]/variants/route.ts`
+- `src/app/api/admin/products/[id]/variants/[variantId]/route.ts`
+- `src/app/api/admin/products/[id]/images/route.ts`
+- `src/app/api/admin/products/[id]/images/[imageId]/route.ts`
+- `src/app/api/admin/products/images/[imageId]/file/route.ts`
+- `src/app/api/admin/categories/route.ts`
+- `src/app/api/images/[imageId]/file/route.ts`
+
+**Creados (UI)**
+
+- `src/components/catalog/products-view.tsx`
+- `src/components/catalog/product-editor.tsx`
+- `src/components/catalog/variant-manager.tsx`
+- `src/components/catalog/image-manager.tsx`
+- `src/app/dashboard/products/page.tsx`
+- `src/app/dashboard/products/[id]/page.tsx`
 
 **Modificados**
 
-- `package.json` y `package-lock.json`: scripts y dependencias de testing retirados.
-- `docker-compose.yml`: servicios `db`, `migrate`, `app` y `seed` (perfil `tools`).
-- `next.config.ts`: `output: "standalone"`.
-- `src/lib/auth/auth.ts`: inicialización diferida, control de cookies por `AUTH_COOKIES_SECURE`.
-- `src/lib/db/prisma.ts`: cliente Prisma diferido (`getPrisma()`).
-- `src/lib/auth/session.ts`, `src/app/api/auth/[...all]/route.ts`, `src/app/api/tenants/route.ts`, `src/app/api/tenants/switch/route.ts`, `prisma/seed.ts`: adaptados a `getAuth()` / `getPrisma()`.
-- `prisma.config.ts`: URL con valor alternativo solo para compilación.
-- Páginas `/`, `/login`, `/dashboard`, `/onboarding`: `force-dynamic`.
-- `.env.example`, `README.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, este archivo.
-- `opencode.json` y `REPORTE_STITCH.md`: sin cambios.
+- `prisma/schema.prisma`: enum `ProductStatus` y modelos `Category`, `Product`, `ProductVariant`, `ProductImage`; relaciones en `Tenant`.
+- `src/components/ui/icon.tsx`: nuevos iconos SVG.
+- `src/components/dashboard/sidebar.tsx`: “Productos” pasó a ser navegación activa.
+- `src/lib/tenants/service.ts`: `getMembershipRole()`.
+- `docker-compose.yml`: variable `PRODUCT_UPLOAD_DIR`, volumen `one-touch-ecommerce-product-uploads`, servicio `migrate-dev`.
+- `Dockerfile`: creación del directorio `/app/storage` con propietario `nextjs`.
+- `README.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, este archivo.
 
-### C. Dependencias de testing eliminadas
+`opencode.json` y la conexión MCP de Stitch no se modificaron.
 
-- `vitest` 5.1.1 (y su árbol transitivo).
-- `@types/pg` 8.15.5.
-- Scripts: `test`, `test:watch`, `db:migrate:test`.
-- Configuración: `vitest.config.mts`.
+### C. Modelos de datos y migraciones
 
-`npm install` actualizó `package-lock.json`. `npm audit` sigue en 0 vulnerabilidades. No se añadió ningún framework de pruebas.
+| Tabla | Campos clave |
+|---|---|
+| `categories` | `tenantId`, `name`, `slug`, `description`; único `(tenantId, slug)` |
+| `products` | `tenantId`, `categoryId?`, `name`, `slug`, `description?`, `status` (`DRAFT`/`ACTIVE`/`ARCHIVED`), `storeVisible`; único `(tenantId, slug)`; índices por tenant+estado y tenant+categoría |
+| `product_variants` | `tenantId`, `productId`, `sku`, `name`, `price DECIMAL(12,2)`, `isActive`, `isDefault`, `stockPhysical`, `stockReserved`; único `(tenantId, sku)` |
+| `product_images` | `tenantId`, `productId`, `storageKey` (único), `fileName`, `mimeType`, `sizeBytes`, `position`, `isCover` |
 
-### D. Arquitectura Docker implementada
+Migración `20261121014930_catalog` generada con `prisma migrate dev --name catalog --create-only` dentro de Docker (bind mount del host). La inicial no se tocó. `migrate` aplicó la nueva migración: salida «2 migrations found» → «Applying migration 20261121014930_catalog» → «All migrations have been successfully applied». Consulta posterior: `_prisma_migrations` contiene `20261121003339_init` y `20261121014930_catalog`.
 
-- Imagen base `node:24-bookworm-slim` con OpenSSL y certificados (necesarios para Prisma 7).
-- `deps`: `npm ci` reproducible con `package-lock.json`.
-- `builder`: `prisma generate` + `next build` con output standalone.
-- `migrator`: CLI de Prisma, esquema, migraciones y cliente generado; sin entrar en la imagen final.
-- `runner`: usuario no root `nextjs` (uid 1001), copia de `.next/standalone`, `.next/static` y `public`; `node server.js` en `0.0.0.0:3000`.
-- Red bridge `one-touch-network`; PostgreSQL sin publicación de puerto en Windows.
+### D. Funcionamiento de productos, categorías y variantes
 
-### E. Servicios y contenedores configurados
+- Listado con búsqueda por nombre o SKU (insensible a mayúsculas), filtro por categoría y visibilidad, conteo y estados vacíos.
+- Creación con variante predeterminada (nombre, SKU opcional y precio). El SKU se normaliza en mayúsculas conservando guiones.
+- Edición de nombre, categoría, descripción y estado; precio editable desde la sección de variantes.
+- Variantes: alta, edición de nombre/SKU/precio y activación/desactivación; `isDefault` se asigna a la primera.
+- Categorías: alta desde un diálogo y asociación por negocio.
+- Visibilidad y archivado se alternan desde el listado (archivar/restaurar solo para OWNER). No existe borrado físico.
 
-| Servicio | Contenedor | Estado observado | Función |
-|---|---|---|---|
-| `db` | `one-touch-ecommerce-db` | Up (healthy) | PostgreSQL 16-alpine, red interna |
-| `migrate` | `one-touch-ecommerce-migrate` | Exited (completado) | `prisma migrate deploy` |
-| `app` | `one-touch-ecommerce-app` | Up (healthy) | Next.js standalone, puerto 3000 |
-| `seed` | `one-touch-ecommerce-seed` | Perfil `tools`, manual | Creación controlada del usuario local |
+### E. Gestión y persistencia de imágenes
 
-### F. Funcionamiento de PostgreSQL y persistencia
+- Subida multipart con validación de MIME (JPEG/PNG/WebP), firma binaria (no solo extensión) y límite de 5 MB; se rechazó una carga SVG con respuesta 400/404.
+- Portada, reordenado y eliminación en transacciones; al borrar la portada se reasigna a la primera restante.
+- Archivos: `PRODUCT_UPLOAD_DIR=/app/storage/product-images`, volumen `one-touch-ecommerce-product-uploads`, usuario `nextjs`. Se validó que tras `docker compose up -d --build` siguen 2 archivos en el volumen y siguen descargándose.
+- Acceso privado: `/api/admin/products/images/[id]/file` (`private, no-store`). Acceso público: `/api/images/[id]/file` (`public, max-age=3600`), que solo responde 200 si el producto está `ACTIVE` y `storeVisible`; en `DRAFT` devolvió 404.
 
-- Base `one_touch_dev`, usuario definido en `.env`, hostname `db:5432` dentro de la red.
-- Volumen `one-touch-ecommerce-pgdata-dev` reutilizado de la Fase 1; los datos se conservaron.
-- Healthcheck `pg_isready` con 15 reintentos; `db` debe estar healthy antes de migrar y arrancar la app.
-- Nota: existe el volumen histórico `one-touch-ecommerce_one-touch-ecommerce-pgdata-test` de la Fase 1. **No se eliminó.** Tampoco se borraron los contenedores huérfanos `one-touch-ecommerce-postgres-dev` y `one-touch-ecommerce-postgres-test` (quedaron detenidos).
+### F. Seguridad y aislamiento multi-tenant
 
-### G. Funcionamiento de Prisma y migraciones
+- `getApiCatalogContext()` y `requireCatalogContext()` validan sesión, negocio activo y membresía en cada operación.
+- Todas las consultas incluyen `tenantId`; un producto de otro negocio devuelve 404 y un cambio de negocio devuelve 403.
+- Categorías de otro negocio se rechazan al crear/editar productos.
+- Transacciones para producto+variante, portada, orden y borrado de imágenes.
+- Permisos: OWNER y OPERATOR administran el catálogo; solo OWNER archiva/restaura.
+- No se debilitaron rate limiting, cookies ni guards existentes.
 
-- `migrate` ejecuta `npm run db:migrate:deploy` → `prisma migrate deploy`.
-- Salida real: «1 migration found in prisma/migrations» → «No pending migrations to apply» (la migración ya estaba aplicada en el volumen conservado).
-- Verificación en BD: `_prisma_migrations` contiene `20261121003339_init` con `finished_at` del 21/11/2026.
-- No se usó `db push`, no se regeneró la migración inicial y no se ejecutaron borrados.
+### G. Pantallas de Stitch implementadas
 
-### H. Estado de autenticación y multi-tenancy
+Proyecto `projects/1619124812250481064`:
 
-Conservado sin cambios funcionales: login/logout de Better Auth, sesiones en cookies, hash scrypt, registro cerrado, rate limiting, roles OWNER/OPERATOR, selector de negocio y protección cross-tenant.
+- Listado: `screens/927f207470fb440f99b269fd030ca478` — *Productos — Ganga Online*.
+- Edición: `screens/03eda08376f746aabb1f7f2e245f1ef0` — *Editar producto — Barra LED recargable*.
 
-En Docker local se usa `AUTH_COOKIES_SECURE=false`, por lo que la cookie es `better-auth.session_token` (funciona sobre HTTP). El valor por defecto del código sigue siendo `Secure`; producción debe usar HTTPS y no definir esa variable.
+Se conservaron estructura de tabla, barra de filtros, cabeceras con acciones, tarjetas de información/variantes/galería y jerarquía visual. Diferencias: se usan los tokens base de la Fase 1 (`#4F46E5`, `#F8FAFC`, Inter); los datos son reales de la BD; las secciones de stock, flujo del bot, WhatsApp y ficha pública aparecen como “no disponible” en esta fase; no se muestran cifras de stock ni estados de flujo inventados.
 
-### I. Comandos exactos en PowerShell
-
-```powershell
-cd "C:\Users\Yeltsin\Documents\SanousG\One-Touch-Ecommerce"
-docker compose up -d --build
-docker compose ps
-docker compose logs -f app
-docker compose stop
-docker compose start
-```
-
-Migraciones y seed:
-
-```powershell
-docker compose run --rm migrate
-docker compose run --rm seed
-```
-
-Tras cambios de código: `docker compose up -d --build`.
-
-### J. Validaciones realizadas y resultados reales
+### H. Validaciones ejecutadas con resultados reales
 
 | Validación | Resultado |
 |---|---|
-| `docker compose config --quiet` | ✅ válido |
-| `docker compose up -d --build` | ✅ imágenes `app` y `migrator` construidas; contenedores creados |
-| `docker compose ps` | ✅ `db` y `app` Up (healthy); `migrate` Exited correctamente |
 | `npm run lint` | ✅ 0 errores, 0 advertencias |
 | `npm run typecheck` | ✅ sin errores |
-| `npm run build` | ✅ standalone generado; 4 páginas dinámicas + `_not-found` |
-| `npm audit` | ✅ 0 vulnerabilidades |
-| Migraciones | ✅ `20261121003339_init` registrada en `_prisma_migrations` |
-| `GET /login` | ✅ 200, contiene el formulario |
-| `GET /dashboard` anónimo | ✅ 307 → `/login?next=%2Fdashboard` |
-| `POST /api/auth/sign-in/email` | ✅ 200, cookie `better-auth.session_token` |
-| `GET /api/auth/get-session` | ✅ sesión válida con `activeTenantId` |
-| `GET /dashboard` autenticado | ✅ 200, “Resumen de hoy”, estado vacío y negocio activo |
-| `POST /api/tenants/switch` negocio propio | ✅ 200 |
-| `POST /api/tenants/switch` negocio ajeno | ✅ 403 `No pertenece a ese negocio` |
-| Login de segundo negocio | ✅ 200 y dashboard muestra “Negocio B local” |
-| `docker compose logs app` | ✅ sin errores ni advertencias críticas |
+| `npm run build` | ✅ 19 rutas, sin errores (2 avisos de tracing resueltos con `turbopackIgnore`) |
+| `docker compose up -d --build` | ✅ imágenes reconstruidas, migración aplicada, `app` healthy |
+| Login OWNER A | ✅ 200 con cookie |
+| Listado inicial | ✅ 0 productos |
+| Crear categoría “Iluminación” | ✅ 201 |
+| Crear producto + variante | ✅ 201 (2 variantes tras añadir otra) |
+| Editar descripción | ✅ 200 |
+| Crear segunda variante | ✅ 201 |
+| Subir 2 imágenes PNG | ✅ 201 (1 y 2 imágenes) |
+| Cambiar portada | ✅ 200 |
+| Reordenar imágenes | ✅ 200 |
+| Descarga privada de imagen | ✅ 200 `image/png` |
+| Búsqueda por nombre | ✅ 1 resultado |
+| Búsqueda por SKU | ✅ 1 resultado (con el SKU real `BLR30K`; la primera comprobación usó `BLR-30K` y falló, se corrigió la normalización del SKU para conservar guiones) |
+| Filtro por categoría | ✅ 1 resultado |
+| Cambiar visibilidad | ✅ 200 `storeVisible=true` |
+| Archivar (OWNER) | ✅ 200 `ARCHIVED`; restauración a `DRAFT` ✅ |
+| Producto ajeno (usuario B) | ✅ 404 |
+| Listado/categorías del negocio B | ✅ 0 productos, sin la categoría de A |
+| Rechazo de SVG | ✅ 400 |
+| Páginas `/dashboard/products` y `/dashboard/products/[id]` | ✅ 200 |
+| Imagen pública en DRAFT / ACTIVE+visible | ✅ 404 / 200 |
+| Persistencia tras rebuild | ✅ producto, 2 variantes, 2 imágenes y archivos conservados |
+| Logs de `app` | ✅ sin errores críticos |
 
-No se crearon archivos de pruebas ni se instaló ningún framework de testing.
+No se crearon archivos ni frameworks de pruebas.
 
-### K. Problemas encontrados y soluciones aplicadas
+### I. Estado de los contenedores Docker
 
-1. `prisma generate` fallaba en el build por falta de `DATABASE_URL` → `prisma.config.ts` usa un valor alternativo solo para compilación; en runtime Compose inyecta la URL real con hostname `db`.
-2. El prerenderizado de `/` exigía `BETTER_AUTH_SECRET` → inicialización diferida de Better Auth y `force-dynamic` en las páginas que usan sesión.
-3. `PrismaClient` se creaba al importar → cliente diferido (`getPrisma()`).
-4. El servicio `seed` no encontraba `.prisma/client` → se añadió `npx prisma generate` a la etapa `migrator`.
-5. Advertencia de contenedores huérfanos de la Fase 1 → se detuvieron sin eliminarlos; el volumen de testing se conservó.
-6. Cookies `Secure` sobre HTTP local → `AUTH_COOKIES_SECURE=false` explícito solo en el entorno local.
+`app` Up (healthy, `0.0.0.0:3000->3000/tcp`), `db` Up (healthy, `5432/tcp` sin publicar en Windows), `migrate` Exited correctamente, `seed` y `migrate-dev` bajo perfil `tools`. Sin borrado de volúmenes ni contenedores de otros proyectos.
 
-### L. Estado final de Docker Compose
+### J. Problemas encontrados y soluciones aplicadas
 
-Dos contenedores activos y saludables (`app`, `db`), `migrate` completado, `seed` bajo perfil `tools`. Sin puertos de PostgreSQL expuestos. Sin volúmenes ni contenedores eliminados.
+1. Búsqueda por SKU fallida en la primera validación: la normalización eliminaba guiones (`BLR-30K` → `BLR30K`). Se cambió para conservarlos y se repitió la comprobación.
+2. Avisos de Turbopack por acceso dinámico a filesystem: se añadieron comentarios `turbopackIgnore` en el módulo de storage.
+3. `PrismaUpdateInput` no acepta `categoryId`: se sustituyó por `category: { connect/disconnect }`.
+4. Icono `edit` ausente: se añadió al conjunto SVG.
+5. Advertencia de contenedores huérfanos de fases anteriores: se mantuvieron detenidos, sin eliminación.
+
+### K. Decisiones técnicas y cambios propuestos
+
+Ver `docs/DECISIONS.md`. Se decidió modelar stock en la variante sin lógica, archivado lógico, slug/SKU por tenant y storage intercambiable por proveedor externo. Propuesto: mover imágenes a object storage cuando se publique la tienda y añadir auditoría de cambios de catálogo.
+
+### L. Pendientes para la Fase 2B
+
+Tienda pública con catálogo por tenant, fichas de producto con galería, selector de variantes y carrito. No se implementaron en esta fase.
 
 ### M. Estado de Git
 
-Cambios de la Fase 1.1 confirmados en un commit con mensaje «Fase 1.1: dockerizacion y simplificacion». `.env`, `node_modules`, `.next` y `.git` quedan fuera del repositorio/imagen. `opencode.json` y la conexión MCP de Stitch permanecen intactos.
-
-### N. Recomendaciones para la siguiente fase
-
-1. Definir `tenantId` obligatorio en cada modelo nuevo y usar `requireDashboardContext()`.
-2. Aprobar el flujo de alta de negocios antes de habilitar registro o invitaciones.
-3. Añadir `AuditLog` y almacenamiento externo para rate limiting antes de escalar réplicas.
-4. Servir por HTTPS en producción y retirar `AUTH_COOKIES_SECURE=false`.
-5. Incorporar verificación E2E solo cuando existan módulos con interacción real.
-
-No se avanzó a la Fase 2 ni se añadieron funcionalidades nuevas.
+Commit de Fase 2A con mensaje «Fase 2A: catalogo administrativo multi-tenant». `.env`, `node_modules`, `.next`, volúmenes e imágenes subidas quedan fuera del repositorio.
