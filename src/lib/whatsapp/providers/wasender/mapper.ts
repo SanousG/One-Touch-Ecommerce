@@ -1,5 +1,5 @@
 import type { MessageKind, MessageStatus, WhatsAppConnectionStatus } from "@prisma/client";
-import type { NormalizedEvent } from "../../types";
+import type { IncomingMedia, NormalizedEvent } from "../../types";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -21,6 +21,37 @@ function detectKind(message: Record<string, unknown>): MessageKind {
     return "CONTACT";
   }
   return typeof message.conversation === "string" || typeof message.extendedTextMessage === "object" ? "TEXT" : "UNKNOWN";
+}
+
+const MEDIA_KEYS: Array<[string, IncomingMedia["type"]]> = [
+  ["imageMessage", "image"],
+  ["videoMessage", "video"],
+  ["audioMessage", "audio"],
+  ["documentMessage", "document"],
+  ["stickerMessage", "sticker"],
+];
+
+/** Extrae la información cifrada del primer archivo presente en el mensaje. */
+function extractMedia(message: Record<string, unknown>, body: string): IncomingMedia | undefined {
+  for (const [key, type] of MEDIA_KEYS) {
+    const raw = asRecord(message[key]);
+    if (!raw) continue;
+    const url = text(raw.url);
+    if (!url) continue;
+    const fileLength = raw.fileLength;
+    return {
+      type,
+      url,
+      mimetype: text(raw.mimetype),
+      mediaKey: text(raw.mediaKey),
+      fileSha256: text(raw.fileSha256),
+      fileLength: typeof fileLength === "number" ? fileLength
+        : typeof fileLength === "string" && Number.isFinite(Number(fileLength)) ? Number(fileLength) : null,
+      fileName: text(raw.fileName),
+      caption: text(raw.caption) ?? (body || null),
+    };
+  }
+  return undefined;
 }
 
 function toDate(value: unknown): Date | null {
@@ -60,18 +91,19 @@ export function mapWasenderMessage(raw: unknown, eventName: string): NormalizedE
     addressingMode: text(key.addressingMode),
     body,
     kind: detectKind(message),
+    media: extractMedia(message, body),
     eventAt: toDate(record.messageTimestamp) ?? toDate(record.timestamp),
   }];
 }
 
-export function mapWasenderStatus(raw: unknown): NormalizedEvent | null {
+export function mapWasenderStatus(raw: unknown, fallbackCode?: number): NormalizedEvent | null {
   const record = asRecord(raw);
   if (!record) return null;
   const key = asRecord(record.key);
   const id = key && text(key.id);
   if (!id) return null;
   const update = asRecord(record.update);
-  const rawStatus = update ? update.status : (record as Record<string, unknown>).status;
+  const rawStatus = update ? update.status : (record as Record<string, unknown>).status ?? fallbackCode;
   const code = typeof rawStatus === "number" ? rawStatus : Number(rawStatus);
   const status: MessageStatus =
     code === 0 ? "FAILED" :

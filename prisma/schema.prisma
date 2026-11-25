@@ -672,6 +672,7 @@ model WhatsAppConnection {
   provider           WhatsAppProviderKind
   name               String
   expectedPhone      String?
+  verifiedPhone      String?
   externalSessionId  String?                   @unique
   status             WhatsAppConnectionStatus  @default(NOT_CONFIGURED)
   providerStatus     String?
@@ -814,6 +815,8 @@ model OutboundMessage {
   conversationMessageId String              @unique
   to                   String
   text                 String
+  kind                 MessageKind          @default(TEXT)
+  mediaUrl             String?
   status               OutboundStatus       @default(PENDING)
   attempts             Int                  @default(0)
   lastError            String?

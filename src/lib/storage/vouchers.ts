@@ -1,8 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { deleteFromDrive, downloadFromDrive, driveFileId, isDriveKey, uploadToDrive } from "./google-drive";
 
 export class VoucherValidationError extends Error {
   constructor(message: string) {
@@ -59,10 +60,14 @@ export async function saveVoucher(file: File, tenantId: string, orderId: string)
   const buffer = Buffer.from(await file.arrayBuffer());
   if (!validSignature(buffer, extension)) throw new VoucherValidationError("El contenido no coincide con el formato declarado");
 
-  const storageKey = `${safeSegment(tenantId)}/${safeSegment(orderId)}-${randomUUID()}.${extension}`;
-  const target = voucherPath(storageKey);
-  await mkdir(/* turbopackIgnore: true */ path.dirname(target), { recursive: true });
-  await writeFile(/* turbopackIgnore: true */ target, buffer, { flag: "wx" });
+  const fileName = `${safeSegment(orderId)}-${randomUUID()}.${extension}`;
+  const uploaded = await uploadToDrive({
+    bytes: buffer,
+    fileName,
+    mimeType,
+    folderSegments: ["Comprobantes", safeSegment(tenantId)],
+  });
+  const storageKey = `drive:${uploaded.fileId}`;
   return {
     storageKey,
     fileName: path.basename(file.name || "comprobante").slice(0, 120),
@@ -72,10 +77,17 @@ export async function saveVoucher(file: File, tenantId: string, orderId: string)
 }
 
 export async function readVoucher(storageKey: string): Promise<Buffer> {
+  if (isDriveKey(storageKey)) {
+    return (await downloadFromDrive(driveFileId(storageKey))).bytes;
+  }
   return readFile(/* turbopackIgnore: true */ voucherPath(storageKey));
 }
 
-export function deleteVoucher(storageKey: string) {
+export async function deleteVoucher(storageKey: string) {
+  if (isDriveKey(storageKey)) {
+    await deleteFromDrive(driveFileId(storageKey)).catch(() => null);
+    return;
+  }
   try {
     unlinkSync(/* turbopackIgnore: true */ voucherPath(storageKey));
   } catch {

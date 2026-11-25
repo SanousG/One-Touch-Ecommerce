@@ -44,7 +44,7 @@ RUN groupadd --gid 1001 nextjs \
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
-RUN mkdir -p /app/storage/product-images /app/storage/payment-vouchers && chown -R nextjs:nextjs /app/storage
+RUN mkdir -p /app/storage/product-images /app/storage/payment-vouchers /app/storage/whatsapp-media && chown -R nextjs:nextjs /app/storage
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

@@ -27,7 +27,13 @@ export function normalizeWasenderWebhook(payload: unknown): NormalizedEvent[] {
     const list = Array.isArray(raw) ? raw : [raw];
     return list.flatMap((item) => mapWasenderMessage(item, event));
   }
-  if (event === "messages.update" || event === "message-receipt.update" || event === "message.sent") {
+  if (event === "message.sent") {
+    // {"key":{...},"message":{...},"success":true|false} — sin campo update/status.
+    const source = asRecord(data.key) ? data : (asRecord(data.message) ?? data);
+    const mapped = mapWasenderStatus(source, data.success === true ? 2 : 0);
+    return mapped ? [mapped] : [{ type: "ignored", reason: "message.sent sin clave" }];
+  }
+  if (event === "messages.update" || event === "message-receipt.update") {
     // messages.update trae {update, key}; receipt trae {message:{key, receipt}}.
     const source = event === "messages.update" ? data : (asRecord(data.message) ?? data);
     const mapped = mapWasenderStatus(source);
@@ -51,6 +57,7 @@ export function sanitizePayload(payload: unknown): Record<string, unknown> {
   const data = asRecord(body.data) ?? {};
   const safeData: Record<string, unknown> = {};
   if (typeof data.status === "string") safeData.status = data.status;
+  if (typeof data.success === "boolean") safeData.success = data.success;
   const messages = data.messages;
   if (messages) {
     const items = Array.isArray(messages) ? messages : [messages];
@@ -65,6 +72,10 @@ export function sanitizePayload(payload: unknown): Record<string, unknown> {
           remoteJidPresent: Boolean(key.remoteJid),
         },
         hasBody: Boolean(msg.messageBody),
+        hasMedia: Boolean(asRecord(msg.message)?.imageMessage ?? asRecord(msg.message)?.videoMessage
+          ?? asRecord(msg.message)?.audioMessage ?? asRecord(msg.message)?.documentMessage
+          ?? asRecord(msg.message)?.stickerMessage),
+        // Nunca se persiste mediaKey (clave de desencriptado): es un secreto del proveedor.
       };
     });
   }
