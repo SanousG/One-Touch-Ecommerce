@@ -34,7 +34,9 @@ export async function processOutboundBatch(limit = 5): Promise<OutboxResult> {
     try {
       const provider = getConnectionProvider(connection);
       const credentials = getConnectionCredentials(connection);
-      const sent = await provider.sendText(credentials, outbound.to, outbound.text);
+      const sent = outbound.kind === "IMAGE" && outbound.mediaUrl
+        ? await provider.sendImage(credentials, outbound.to, outbound.mediaUrl, outbound.text || undefined)
+        : await provider.sendText(credentials, outbound.to, outbound.text);
       const providerMessageId = sent.providerMessageId ?? `pending:${outbound.id}`;
       await prisma.$transaction([
         prisma.outboundMessage.update({

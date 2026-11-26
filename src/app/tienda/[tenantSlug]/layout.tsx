@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { StoreFooter } from "@/components/store/store-footer";
-import { StoreHeader } from "@/components/store/store-header";
+import { StoreShell } from "@/components/store/store-shell";
 import { getStoreBySlug } from "@/lib/store/service";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +11,5 @@ export default async function StoreLayout({ children, params }: Props) {
   const store = await getStoreBySlug(tenantSlug);
   if (!store) notFound();
 
-  return (
-    <div className="flex min-h-screen flex-col bg-surface">
-      <StoreHeader store={store} />
-      <main className="flex-1 pt-16">{children}</main>
-      <StoreFooter storeName={store.name} />
-    </div>
-  );
+  return <StoreShell store={store}>{children}</StoreShell>;
 }

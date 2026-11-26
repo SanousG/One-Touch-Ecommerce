@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { getPrisma } from "../db/prisma";
 import { assertRole, assertTenantMembership, ForbiddenError } from "../auth/guards";
 
@@ -60,7 +61,7 @@ async function findMembership(userId: string, tenantId: string) {
 }
 
 /** Rol del usuario en un negocio concreto. Devuelve null si no pertenece. */
-export async function getMembershipRole(
+export const getMembershipRole = cache(async function getMembershipRole(
   userId: string,
   tenantId: string,
 ): Promise<TenantSummary["role"] | null> {
@@ -69,10 +70,10 @@ export async function getMembershipRole(
     select: { role: true },
   });
   return membership?.role ?? null;
-}
+});
 
 /** Lista únicamente los negocios a los que pertenece el usuario. */
-export async function listUserTenants(userId: string): Promise<TenantSummary[]> {
+export const listUserTenants = cache(async function listUserTenants(userId: string): Promise<TenantSummary[]> {
   const [memberships, user] = await Promise.all([
     getPrisma().tenantMembership.findMany({
       where: { userId },
@@ -83,7 +84,7 @@ export async function listUserTenants(userId: string): Promise<TenantSummary[]> 
   ]);
 
   return memberships.map((m) => toSummary(m, user?.activeTenantId ?? null));
-}
+});
 
 /** Consulta segura de un negocio: la membresía se exige en la propia consulta. */
 export async function getTenantForUser(userId: string, tenantId: string): Promise<TenantSummary> {
@@ -104,7 +105,7 @@ export async function getTenantForUser(userId: string, tenantId: string): Promis
  * usa de forma efectiva (sin escribir) la primera membresía del usuario.
  * Nunca devuelve un negocio al que el usuario no pertenezca.
  */
-export async function getActiveTenantForUser(userId: string): Promise<TenantSummary | null> {
+export const getActiveTenantForUser = cache(async function getActiveTenantForUser(userId: string): Promise<TenantSummary | null> {
   const [user, memberships] = await Promise.all([
     getPrisma().user.findUnique({ where: { id: userId }, select: { activeTenantId: true } }),
     getPrisma().tenantMembership.findMany({
@@ -120,7 +121,7 @@ export async function getActiveTenantForUser(userId: string): Promise<TenantSumm
   const effectiveId =
     memberships.find((m) => m.tenantId === persistedId)?.tenantId ?? memberships[0].tenantId;
   return toSummary(memberships.find((m) => m.tenantId === effectiveId)!, effectiveId);
-}
+});
 
 /** Crea el negocio, asigna OWNER al creador y lo deja como activo en una transacción. */
 export async function createTenantForUser(userId: string, input: { name: string }): Promise<TenantSummary> {
@@ -157,7 +158,7 @@ export async function switchTenantForUser(userId: string, tenantId: string): Pro
 }
 
 /** Configuración pública del negocio activo (lectura verificada). */
-export async function getActiveTenantSettings(userId: string) {
+export const getActiveTenantSettings = cache(async function getActiveTenantSettings(userId: string) {
   const active = await getActiveTenantForUser(userId);
   if (!active) throw new ForbiddenError("Seleccione un negocio");
   const tenant = await getPrisma().tenant.findFirst({
@@ -166,7 +167,7 @@ export async function getActiveTenantSettings(userId: string) {
   });
   if (!tenant) throw new ForbiddenError("Negocio no encontrado");
   return { ...tenant, role: active.role };
-}
+});
 
 /** Normaliza y valida un número E.164. Devuelve null si se solicita vaciar. */
 export function normalizeWhatsappPhone(value: unknown): string | null {
@@ -179,6 +180,20 @@ export function normalizeWhatsappPhone(value: unknown): string | null {
     throw new ValidationError("Ingrese un número internacional válido (E.164), por ejemplo +51999999999");
   }
   return phone;
+}
+
+/** Actualiza el nombre del negocio activo. Solo OWNER. El slug no cambia. */
+export async function updateTenantName(userId: string, input: { name?: unknown }) {
+  const active = await getActiveTenantForUser(userId);
+  if (!active) throw new ForbiddenError("Seleccione un negocio");
+  await assertTenantOwner(userId, active.id);
+  const name = validateName(typeof input.name === "string" ? input.name : "");
+  const tenant = await getPrisma().tenant.update({
+    where: { id: active.id },
+    data: { name },
+    select: { id: true, name: true, slug: true, whatsappPhone: true },
+  });
+  return tenant;
 }
 
 /** Configura el WhatsApp del negocio activo. Solo OWNER. */

@@ -505,7 +505,7 @@ export async function addProductImage(
       });
     });
   } catch (error) {
-    deleteStoredImage(stored.storageKey);
+    await deleteStoredImage(stored.storageKey);
     throw error;
   }
   return getProduct(actor, productId);
@@ -559,7 +559,7 @@ export async function removeProductImage(
     throw new ConflictError("La imagen está siendo usada por una landing y no se puede eliminar");
   }
   await getPrisma().productImage.delete({ where: { id: imageId } });
-  deleteStoredImage(image.storageKey);
+  await deleteStoredImage(image.storageKey);
 
   await getPrisma().$transaction(async (tx) => {
     const remaining = await tx.productImage.findMany({

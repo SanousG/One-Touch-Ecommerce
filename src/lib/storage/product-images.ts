@@ -1,8 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { deleteFromDrive, downloadFromDrive, driveFileId, isDriveKey, uploadToDrive } from "./google-drive";
 
 export class ImageValidationError extends Error {
   constructor(message: string) {
@@ -55,7 +56,11 @@ export function storedImagePath(storageKey: string): string {
   return target;
 }
 
-export function deleteStoredImage(storageKey: string) {
+export async function deleteStoredImage(storageKey: string) {
+  if (isDriveKey(storageKey)) {
+    await deleteFromDrive(driveFileId(storageKey)).catch(() => null);
+    return;
+  }
   try {
     unlinkSync(/* turbopackIgnore: true */ storedImagePath(storageKey));
   } catch {
@@ -77,10 +82,14 @@ export async function saveProductImage(file: File, tenantId: string, productId: 
     throw new ImageValidationError("El contenido del archivo no coincide con su formato");
   }
 
-  const storageKey = `${safeSegment(tenantId)}/${safeSegment(productId)}/${randomUUID()}.${extension}`;
-  const target = storedImagePath(storageKey);
-  await mkdir(/* turbopackIgnore: true */ path.dirname(target), { recursive: true });
-  await writeFile(/* turbopackIgnore: true */ target, buffer, { flag: "wx" });
+  const fileName = `${safeSegment(productId)}-${randomUUID()}.${extension}`;
+  const uploaded = await uploadToDrive({
+    bytes: buffer,
+    fileName,
+    mimeType,
+    folderSegments: ["Productos", safeSegment(tenantId)],
+  });
+  const storageKey = `drive:${uploaded.fileId}`;
 
   return {
     storageKey,
@@ -91,5 +100,8 @@ export async function saveProductImage(file: File, tenantId: string, productId: 
 }
 
 export async function readStoredImage(storageKey: string): Promise<Buffer> {
+  if (isDriveKey(storageKey)) {
+    return (await downloadFromDrive(driveFileId(storageKey))).bytes;
+  }
   return readFile(/* turbopackIgnore: true */ storedImagePath(storageKey));
 }

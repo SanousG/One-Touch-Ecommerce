@@ -26,7 +26,7 @@ export async function POST(request: Request, { params }: Context) {
   } catch (error) {
     if (storageKey) {
       const { deleteVoucher } = await import("@/lib/storage/vouchers");
-      deleteVoucher(storageKey);
+      await deleteVoucher(storageKey);
     }
     return commerceErrorResponse(error);
   }

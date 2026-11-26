@@ -10,7 +10,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function LandingPreviewPage({ params }: { params: Promise<{ id: string }> }) {
+/** Se renderiza fuera del panel para que se vea igual que la página del cliente. */
+export default async function PrivateLandingPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const actor = await requireLandingActor();
   const { id } = await params;
   let preview;
@@ -27,6 +28,7 @@ export default async function LandingPreviewPage({ params }: { params: Promise<{
       content={preview.content}
       mode="preview"
       landingSlug={preview.landing.slug}
+      landingId={preview.landing.id}
     />
   );
 }

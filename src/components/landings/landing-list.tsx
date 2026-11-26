@@ -93,7 +93,7 @@ export function LandingList({ landings, products }: Props) {
                           <Icon name={copied === landing.id ? "check" : "copy"} size={16} />
                         </button>
                       ) : null}
-                      <Link href={`/dashboard/landings/${landing.id}/preview`} title="Vista previa privada" className="rounded-lg p-1.5 text-muted hover:bg-background hover:text-primary">
+                      <Link href={`/preview/landing/${landing.id}`} target="_blank" title="Vista previa privada" className="rounded-lg p-1.5 text-muted hover:bg-background hover:text-primary">
                         <Icon name="eye" size={17} />
                       </Link>
                       <Link href={`/dashboard/landings/${landing.id}`} title="Editar landing" className="rounded-lg p-1.5 text-muted hover:bg-background hover:text-primary">
@@ -131,7 +131,11 @@ function CreateLandingDialog({ products, onClose }: { products: ProductDTO[]; on
       const response = await fetch("/api/admin/landings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, slug, headline }),
+        body: JSON.stringify({
+          productId,
+          ...(slug.trim() ? { slug: slug.trim() } : {}),
+          ...(headline.trim() ? { headline: headline.trim() } : {}),
+        }),
       });
       const data = (await response.json()) as { error?: string; landing?: { id: string } };
       if (!response.ok || !data.landing) { setError(data.error ?? "No se pudo crear la landing"); return; }
@@ -156,11 +160,13 @@ function CreateLandingDialog({ products, onClose }: { products: ProductDTO[]; on
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted">Slug público (opcional)</span>
-          <input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="Se genera desde el producto" className={inputClass} />
+          <input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="Ej. mouse-logitech-x2" className={inputClass} />
+          <span className="text-[11px] text-muted">Es la parte final de la dirección de la landing. Si lo dejas vacío, se genera desde el producto.</span>
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted">Titular inicial (opcional)</span>
-          <input value={headline} onChange={(event) => setHeadline(event.target.value)} placeholder="Se usa el nombre del producto" className={inputClass} />
+          <input value={headline} onChange={(event) => setHeadline(event.target.value)} placeholder="Ej. Mouse Logitech X2 con envío gratis" className={inputClass} />
+          <span className="text-[11px] text-muted">Es el texto grande que verá el cliente. Si lo dejas vacío, se usa el nombre del producto.</span>
         </label>
         {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
         <div className="flex justify-end gap-2 pt-2">

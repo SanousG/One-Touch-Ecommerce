@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
@@ -29,11 +29,24 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageCaption, setImageCaption] = useState("");
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     const timer = setInterval(() => router.refresh(), 6000);
     return () => clearInterval(timer);
   }, [router]);
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   async function post(path: string, body: Record<string, unknown>) {
     setBusy(true);
@@ -57,23 +70,52 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
   }
 
   async function send() {
-    if (!detail || !draft.trim()) return;
+    if (!detail || !draft.trim() || sendingRef.current) return;
+    sendingRef.current = true;
+    const text = draft;
+    setDraft("");
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(`/api/admin/conversations/${detail.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: draft }),
+        body: JSON.stringify({ text }),
       });
       const data = (await response.json()) as { error?: string };
-      if (!response.ok) { setError(data.error ?? "No se pudo encolar el mensaje"); return; }
-      setDraft("");
+      if (!response.ok) { setDraft(text); setError(data.error ?? "No se pudo encolar el mensaje"); return; }
       setStatus("Mensaje encolado para envío.");
+      router.refresh();
+    } catch {
+      setDraft(text);
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      sendingRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function sendImage() {
+    if (!detail || !imageFile || sendingRef.current) return;
+    sendingRef.current = true;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const form = new FormData();
+      form.set("file", imageFile);
+      form.set("caption", imageCaption);
+      const response = await fetch(`/api/admin/conversations/${detail.id}/image`, { method: "POST", body: form });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) { setError(data.error ?? "No se pudo enviar la imagen"); return; }
+      setImageFile(null);
+      setImageCaption("");
+      setStatus("Imagen encolada para envío.");
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
+      sendingRef.current = false;
       setBusy(false);
     }
   }
@@ -167,7 +209,19 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
                   <div key={message.id} className={`flex ${message.direction === "OUTBOUND" ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[75%] rounded-xl px-3 py-2 text-sm shadow-sm ${message.direction === "OUTBOUND" ? "rounded-br-none bg-primary text-white" : "rounded-bl-none border border-border bg-surface"}`}>
                       <p className="mb-1 text-[10px] opacity-70">{message.author ?? (message.direction === "OUTBOUND" ? "Vendedor" : "Cliente")} · {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
-                      <p className="whitespace-pre-wrap">{message.content ?? "(sin texto)"}</p>
+                      {message.kind === "IMAGE" ? (
+                        message.media?.status === "ready" && message.media.path ? (
+                          <ImageBubble
+                            src={`/api/admin/conversations/${detail.id}/media/${message.id}`}
+                            fileName={message.media.fileName ?? "Foto del mensaje"}
+                            onOpen={(alt) => setLightbox({ src: `/api/admin/conversations/${detail.id}/media/${message.id}`, alt })}
+                          />
+                        ) : (
+                          <p className="mb-1 italic opacity-70">[Foto no disponible]</p>
+                        )
+                      ) : null}
+                      {message.content ? <p className="whitespace-pre-wrap">{message.content}</p> : null}
+                      {!message.content && message.kind !== "IMAGE" ? <p className="whitespace-pre-wrap">(sin texto)</p> : null}
                       <p className="mt-1 text-[10px] opacity-70">{message.status}</p>
                     </div>
                   </div>
@@ -179,12 +233,43 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
                 ))}
               </div>
 
-              <div className="flex items-center gap-2 border-t border-border bg-surface p-3">
-                <span title="Adjuntos disponibles en una fase posterior" className="p-2 text-slate-300"><Icon name="copy" size={18} /></span>
-                <input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => event.key === "Enter" && send()} placeholder="Escribe un mensaje..." className={inputClass} />
-                <button type="button" onClick={send} disabled={busy || !draft.trim() || !connection.verified} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                  Enviar <Icon name="arrow" size={15} />
-                </button>
+              <div className="border-t border-border bg-surface p-3">
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer rounded-lg border border-border p-2 text-muted hover:text-primary" title="Adjuntar foto (JPEG, PNG, WebP o GIF, máx. 16 MB)">
+                    <Icon name="copy" size={18} />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      disabled={busy || !connection.verified}
+                      onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  <input
+                    value={draft}
+                    disabled={busy}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void send();
+                      }
+                    }}
+                    placeholder="Escribe un mensaje..."
+                    className={inputClass}
+                  />
+                  <button type="button" onClick={send} disabled={busy || !draft.trim() || !connection.verified} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    Enviar <Icon name="arrow" size={15} />
+                  </button>
+                </div>
+                {imageFile ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2 text-xs">
+                    <span className="truncate">📎 {imageFile.name} ({(imageFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    <input value={imageCaption} onChange={(event) => setImageCaption(event.target.value)} placeholder="Pie de foto (opcional)" className={`${inputClass} max-w-xs`} />
+                    <button type="button" onClick={sendImage} disabled={busy || !connection.verified} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Enviar foto</button>
+                    <button type="button" onClick={() => { setImageFile(null); setImageCaption(""); }} className="rounded-lg border border-border px-3 py-1.5 text-xs">Cancelar</button>
+                  </div>
+                ) : null}
               </div>
               {!connection.verified ? <p className="px-3 pb-3 text-[11px] text-amber-700">La conexión no está verificada; no se pueden encolar mensajes.</p> : null}
             </>
@@ -235,7 +320,41 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
           )}
         </aside>
       </div>
+
+      {lightbox ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
+          onClick={() => setLightbox(null)}
+          role="presentation"
+        >
+          <button
+            type="button"
+            aria-label="Cerrar imagen"
+            onClick={() => setLightbox(null)}
+            className="absolute right-5 top-5 rounded-full bg-white/90 px-3 py-1 text-lg font-semibold text-slate-800 hover:bg-white"
+          >
+            ×
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox.src}
+            alt={lightbox.alt}
+            onClick={(event) => event.stopPropagation()}
+            className="max-h-[92vh] max-w-[92vw] rounded-lg bg-white object-contain shadow-2xl"
+          />
+          <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/80">{lightbox.alt} · clic fuera o Esc para cerrar</p>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function ImageBubble({ src, fileName, onOpen }: { src: string; fileName: string; onOpen: (fileName: string) => void }) {
+  return (
+    <button type="button" onClick={() => onOpen(fileName)} className="mb-1 block cursor-zoom-in" title="Ver imagen en grande">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={fileName} className="max-h-64 max-w-full rounded-lg border border-border object-contain" />
+    </button>
   );
 }
 

@@ -23,7 +23,6 @@ export function ProductsView({ products, categories, filters, canArchive, flowSt
   const [categoryId, setCategoryId] = useState(filters.categoryId ?? "");
   const [visible, setVisible] = useState(filters.visible ?? "");
   const [showCreate, setShowCreate] = useState(false);
-  const [showCategory, setShowCategory] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,13 +93,6 @@ export function ProductsView({ products, categories, filters, canArchive, flowSt
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowCategory(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground shadow-sm hover:bg-background"
-          >
-            <Icon name="folder" size={17} className="text-muted" /> Categorías
-          </button>
           <button
             type="button"
             disabled
@@ -297,7 +289,6 @@ export function ProductsView({ products, categories, filters, canArchive, flowSt
       </section>
 
       {showCreate ? <CreateProductDialog categories={categories} onClose={() => setShowCreate(false)} /> : null}
-      {showCategory ? <CreateCategoryDialog onClose={() => setShowCategory(false)} /> : null}
     </div>
   );
 }
@@ -305,11 +296,14 @@ export function ProductsView({ products, categories, filters, canArchive, flowSt
 function CreateProductDialog({ categories, onClose }: { categories: CategoryDTO[]; onClose: () => void }) {
   const router = useRouter();
   const [form, setForm] = useState({ name: "", categoryId: "", description: "", price: "", variantName: "Predeterminada", variantSku: "" });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (createdId) { onClose(); return; }
     setSaving(true);
     setError(null);
     try {
@@ -318,8 +312,21 @@ function CreateProductDialog({ categories, onClose }: { categories: CategoryDTO[
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) { setError(data.error ?? "No se pudo crear el producto"); return; }
+      const data = (await response.json()) as { error?: string; product?: { id: string } };
+      if (!response.ok || !data.product) { setError(data.error ?? "No se pudo crear el producto"); return; }
+      setCreatedId(data.product.id);
+
+      if (imageFile) {
+        const body = new FormData();
+        body.set("file", imageFile);
+        const upload = await fetch(`/api/admin/products/${data.product.id}/images`, { method: "POST", body });
+        const uploaded = (await upload.json()) as { error?: string };
+        if (!upload.ok) {
+          setError(uploaded.error ?? "Producto creado, pero no se pudo subir la imagen. Puede añadirla desde la edición.");
+          router.refresh();
+          return;
+        }
+      }
       onClose();
       router.refresh();
     } catch { setError("No se pudo conectar con el servidor"); }
@@ -352,49 +359,29 @@ function CreateProductDialog({ categories, onClose }: { categories: CategoryDTO[
         <Field label="Descripción">
           <textarea rows={3} maxLength={1000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={inputClass} />
         </Field>
+        <label className="flex cursor-pointer flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted">Foto del producto (opcional)</span>
+          <span className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-background px-3 py-2 text-xs text-muted hover:text-primary">
+            <Icon name="upload" size={18} className="text-primary" />
+            {imageFile ? imageFile.name : "JPG / PNG / WebP · máx. 5 MB"}
+          </span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            disabled={saving || Boolean(createdId)}
+            onChange={(event) => {
+              setImageFile(event.target.files?.[0] ?? null);
+              event.target.value = "";
+            }}
+          />
+        </label>
         {error ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm">Cancelar</button>
-          <button type="submit" disabled={saving} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-            {saving ? "Creando…" : "Crear producto"}
+          <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm">{createdId ? "Cerrar" : "Cancelar"}</button>
+          <button type={createdId ? "button" : "submit"} disabled={saving} onClick={createdId ? onClose : undefined} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+            {saving ? "Creando…" : createdId ? "Listo" : "Crear producto"}
           </button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
-function CreateCategoryDialog({ onClose }: { onClose: () => void }) {
-  const router = useRouter();
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const response = await fetch("/api/admin/categories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    if (!response.ok) {
-      const data = (await response.json()) as { error?: string };
-      setError(data.error ?? "No se pudo crear la categoría");
-      return;
-    }
-    onClose();
-    router.refresh();
-  }
-
-  return (
-    <Dialog title="Nueva categoría" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Nombre">
-          <input required minLength={2} maxLength={80} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-        </Field>
-        {error ? <p role="alert" className="text-sm text-red-700">{error}</p> : null}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm">Cancelar</button>
-          <button type="submit" className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">Crear</button>
         </div>
       </form>
     </Dialog>

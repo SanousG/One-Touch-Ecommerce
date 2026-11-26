@@ -3,7 +3,7 @@
 name: one-touch-ecommerce
 
 x-app-env: &app-env
-  DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-one_touch_dev}?schema=public"
+  DATABASE_URL: "${DATABASE_URL}"
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
   BETTER_AUTH_URL: "http://localhost:3000"
   NEXT_PUBLIC_APP_URL: "http://localhost:3000"
@@ -13,10 +13,17 @@ x-app-env: &app-env
   PRODUCT_UPLOAD_DIR: "/app/storage/product-images"
   # Comprobantes de adelanto: almacenamiento privado, nunca expuesto públicamente.
   VOUCHER_UPLOAD_DIR: "/app/storage/payment-vouchers"
+  # Fotos de la bandeja: almacenamiento privado servido solo a usuarios autenticados.
+  WHATSAPP_MEDIA_DIR: "/app/storage/whatsapp-media"
   # Cifrado de credenciales y base pública del webhook (inyectadas desde .env, nunca en la imagen).
   WHATSAPP_ENCRYPTION_KEY: ${WHATSAPP_ENCRYPTION_KEY}
   WHATSAPP_WEBHOOK_BASE_URL: "${WHATSAPP_WEBHOOK_BASE_URL:-}"
   WASENDER_API_BASE_URL: "${WASENDER_API_BASE_URL:-https://www.wasenderapi.com}"
+  WASENDER_PERSONAL_ACCESS_TOKEN: "${WASENDER_PERSONAL_ACCESS_TOKEN:-}"
+  # Google Drive: almacenamiento de imágenes de producto, comprobantes y fotos de WhatsApp.
+  GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+  GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+  GOOGLE_DRIVE_REFRESH_TOKEN: "${GOOGLE_DRIVE_REFRESH_TOKEN:-}"
 
 services:
   db:

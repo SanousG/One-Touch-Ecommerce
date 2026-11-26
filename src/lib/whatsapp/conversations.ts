@@ -5,7 +5,8 @@ import { assertInboxManager } from "../auth/permissions";
 import { getPrisma } from "../db/prisma";
 import { getApiCatalogContext, requireCatalogContext } from "../catalog/service";
 import type { CatalogActor } from "../catalog/service";
-import { getConnectionProvider } from "./connection-access";
+import { getConnectionCredentials, getConnectionProvider } from "./connection-access";
+import { saveWhatsappImage } from "./media-storage";
 import { sanitizePayload } from "./providers/wasender/webhook";
 import type { NormalizedMessage } from "./types";
 
@@ -36,6 +37,7 @@ export type MessageDTO = {
   kind: string;
   author: string | null;
   content: string | null;
+  media: { type?: string; status?: string; path?: string; mimeType?: string; fileName?: string } | null;
   status: string;
   createdAt: string;
 };
@@ -56,6 +58,28 @@ export async function getApiInboxActor(request: Request): Promise<CatalogActor> 
 
 function contactLabel(contact: { displayName: string | null; phone: string | null; externalId: string }): string {
   return contact.displayName || contact.phone || contact.externalId.slice(0, 24);
+}
+
+function toMessageDTO(message: {
+  id: string;
+  direction: string;
+  kind: string;
+  authorName: string | null;
+  content: string | null;
+  media: unknown;
+  status: string;
+  createdAt: Date;
+}): MessageDTO {
+  return {
+    id: message.id,
+    direction: message.direction,
+    kind: message.kind,
+    author: message.authorName,
+    content: message.content,
+    media: (message.media && typeof message.media === "object" ? message.media : null) as MessageDTO["media"],
+    status: message.status,
+    createdAt: message.createdAt.toISOString(),
+  };
 }
 
 function toDTO(row: Prisma.ConversationGetPayload<{ include: { contact: true } }>): ConversationDTO {
@@ -131,6 +155,7 @@ export async function getConversation(actor: CatalogActor, id: string): Promise<
       kind: message.kind,
       author: message.authorName,
       content: message.content,
+      media: (message.media && typeof message.media === "object" ? message.media : null) as MessageDTO["media"],
       status: message.status,
       createdAt: message.createdAt.toISOString(),
     })),
@@ -241,7 +266,23 @@ export async function sendMessage(actor: CatalogActor, conversationId: string, t
     throw new InboxError("El contacto no tiene un destinatario válido", 409);
   }
 
-  const created = await getPrisma().$transaction(async (tx) => {
+  // Idempotencia: se bloquea la fila lógica (tenant+conversación+texto) para que
+  // dos peticiones simultáneas no encolen el mismo mensaje dos veces.
+  const lockKey = createHash("sha256").update(`${actor.tenantId}:${conversationId}:${trimmed}`).digest().readBigInt64LE(0);
+  const result = await getPrisma().$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
+    const recent = await tx.conversationMessage.findFirst({
+      where: {
+        tenantId: actor.tenantId,
+        conversationId,
+        direction: "OUTBOUND",
+        content: trimmed,
+        createdAt: { gte: new Date(Date.now() - 15_000) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recent) return { message: recent, duplicate: true };
+
     const message = await tx.conversationMessage.create({
       data: {
         tenantId: actor.tenantId,
@@ -279,6 +320,95 @@ export async function sendMessage(actor: CatalogActor, conversationId: string, t
         actorId: actor.userId,
       },
     });
+    return { message, duplicate: false };
+  });
+
+  return toMessageDTO(result.message);
+}
+
+/** Sube una imagen a Wasender y la encola para envío desde la bandeja. */
+export async function sendImageMessage(
+  actor: CatalogActor,
+  conversationId: string,
+  input: { bytes: Buffer; mimeType: string; fileName: string; caption?: string },
+): Promise<MessageDTO> {
+  assertInboxManager(actor.role);
+  const conversation = await ownedConversation(actor, conversationId);
+  const connection = await getPrisma().whatsAppConnection.findFirst({
+    where: { id: conversation.connectionId, tenantId: actor.tenantId },
+  });
+  if (!connection) throw new InboxError("Conexión no encontrada", 404);
+  if (connection.status !== "CONNECTED") throw new InboxError("La conexión de WhatsApp no está conectada", 409);
+  if (!conversation.contact.phone && !conversation.contact.externalId.includes("@")) {
+    throw new InboxError("El contacto no tiene un destinatario válido", 409);
+  }
+  const caption = (input.caption ?? "").trim().slice(0, 1000);
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(input.mimeType)) {
+    throw new InboxError("Formato de imagen no soportado (JPEG, PNG, WebP o GIF)", 400);
+  }
+  if (input.bytes.length === 0 || input.bytes.length > 16 * 1024 * 1024) {
+    throw new InboxError("La imagen debe pesar entre 1 byte y 16 MB", 400);
+  }
+
+  const provider = getConnectionProvider(connection);
+  if (!provider.uploadMedia) throw new InboxError("Este proveedor no permite enviar imágenes", 400);
+  const remoteUrl = await provider.uploadMedia(getConnectionCredentials(connection), {
+    bytes: input.bytes,
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+  });
+
+  const storedPath = await saveWhatsappImage(actor.tenantId, `out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, input.bytes, input.mimeType);
+  const preview = caption || "[Foto]";
+
+  const created = await getPrisma().$transaction(async (tx) => {
+    const message = await tx.conversationMessage.create({
+      data: {
+        tenantId: actor.tenantId,
+        connectionId: connection.id,
+        conversationId,
+        direction: "OUTBOUND",
+        kind: "IMAGE",
+        authorName: actor.userId,
+        content: caption || null,
+        media: {
+          type: "image",
+          status: "ready",
+          path: storedPath,
+          mimeType: input.mimeType,
+          fileName: input.fileName,
+          remoteUrl,
+        } as Prisma.InputJsonValue,
+        status: "PENDING",
+        createdAt: new Date(),
+      },
+    });
+    await tx.outboundMessage.create({
+      data: {
+        tenantId: actor.tenantId,
+        connectionId: connection.id,
+        conversationId,
+        conversationMessageId: message.id,
+        to: conversation.contact.phone ?? conversation.contact.externalId,
+        text: caption,
+        kind: "IMAGE",
+        mediaUrl: remoteUrl,
+        status: "PENDING",
+      },
+    });
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessage: preview.slice(0, 200), lastMessageAt: new Date() },
+    });
+    await tx.conversationEvent.create({
+      data: {
+        tenantId: actor.tenantId,
+        conversationId,
+        type: "MESSAGE_OUT",
+        description: "Imagen encolada para envío",
+        actorId: actor.userId,
+      },
+    });
     return message;
   });
 
@@ -288,9 +418,43 @@ export async function sendMessage(actor: CatalogActor, conversationId: string, t
     kind: created.kind,
     author: created.authorName,
     content: created.content,
+    media: created.media as MessageDTO["media"],
     status: created.status,
     createdAt: created.createdAt.toISOString(),
   };
+}
+
+function buildDedupeKey(connectionId: string, eventName: string, payload: unknown, normalized: NormalizedEventLike[]) {
+  const fingerprint = createHash("sha256").update(JSON.stringify(payload ?? {})).digest("hex").slice(0, 32);
+  const ids = normalized
+    .filter((item) => item.type === "message")
+    .map((item) => (item as NormalizedMessage).externalId)
+    .sort();
+  // Todos los ids del evento: evita perder mensajes de un upsert con Several mensajes.
+  return `${connectionId}:${eventName}:${ids.length ? ids.join(",") : fingerprint}`.slice(0, 900);
+}
+
+type NormalizedEventLike = { type: string };
+
+async function applyNormalizedEvents(connection: WhatsAppConnection, normalized: NormalizedEventLike[]): Promise<boolean> {
+  let handled = false;
+  for (const item of normalized) {
+    if (item.type === "message") { await handleIncomingMessage(connection, item as NormalizedMessage); handled = true; }
+    if (item.type === "status") {
+      const status = item as unknown as { externalId: string; status: string; providerStatus: string };
+      await handleStatusUpdate(connection, status);
+      handled = true;
+    }
+    if (item.type === "session") {
+      const session = item as unknown as { status: "CONNECTED" | "CONNECTING" | "NEEDS_LINKING" | "DISCONNECTED" | "ERROR" | "PENDING"; providerStatus: string };
+      await getPrisma().whatsAppConnection.update({
+        where: { id: connection.id },
+        data: { status: session.status, providerStatus: session.providerStatus, lastCheckedAt: new Date() },
+      });
+      handled = true;
+    }
+  }
+  return handled;
 }
 
 /** Persiste el evento antes de confirmar y lo procesa de forma idempotente. */
@@ -299,9 +463,7 @@ export async function ingestWebhook(connection: WhatsAppConnection, payload: unk
   const eventName = typeof raw.event === "string" ? raw.event : "unknown";
   const provider = getConnectionProvider(connection);
   const normalized = provider.normalizeWebhook(payload);
-  const fingerprint = createHash("sha256").update(JSON.stringify(payload ?? {})).digest("hex").slice(0, 32);
-  const messageIds = normalized.filter((item) => item.type === "message").map((item) => (item as NormalizedMessage).externalId);
-  const dedupeKey = `${connection.id}:${eventName}:${messageIds[0] ?? fingerprint}`;
+  const dedupeKey = buildDedupeKey(connection.id, eventName, payload, normalized);
 
   try {
     await getPrisma().webhookEvent.create({
@@ -322,31 +484,77 @@ export async function ingestWebhook(connection: WhatsAppConnection, payload: unk
     throw error;
   }
 
-  let ignored = true;
   try {
-    for (const item of normalized) {
-      if (item.type === "message") { await handleIncomingMessage(connection, item); ignored = false; }
-      if (item.type === "status") { await handleStatusUpdate(connection, item); ignored = false; }
-      if (item.type === "session") {
-        await getPrisma().whatsAppConnection.update({
-          where: { id: connection.id },
-          data: { status: item.status, providerStatus: item.providerStatus, lastCheckedAt: new Date() },
-        });
-        ignored = false;
-      }
-    }
+    const handled = await applyNormalizedEvents(connection, normalized);
     await getPrisma().webhookEvent.update({
       where: { dedupeKey },
-      data: { status: ignored ? "IGNORED" : "PROCESSED", processedAt: new Date() },
+      data: { status: handled ? "PROCESSED" : "IGNORED", processedAt: new Date() },
     });
+    return { duplicate: false, ignored: !handled };
   } catch (error) {
-    await getPrisma().webhookEvent.update({
-      where: { dedupeKey },
-      data: { status: "FAILED", error: error instanceof Error ? error.message.slice(0, 300) : "error" },
-    });
+    await markFailed(dedupeKey, error);
     throw error;
   }
-  return { duplicate: false, ignored };
+}
+
+async function markFailed(dedupeKey: string, error: unknown) {
+  await getPrisma().webhookEvent.update({
+    where: { dedupeKey },
+    data: { status: "FAILED", error: error instanceof Error ? error.message.slice(0, 300) : "error" },
+  });
+}
+
+/** Reprocesa eventos fallidos sin borrarlos ni duplicar mensajes ya guardados. */
+export async function retryFailedWebhooks(actor: CatalogActor, limit = 20) {
+  assertInboxManager(actor.role);
+  const failed = await getPrisma().webhookEvent.findMany({
+    where: { tenantId: actor.tenantId, status: "FAILED" },
+    orderBy: { createdAt: "asc" },
+    take: Math.min(Math.max(limit, 1), 50),
+  });
+  const result = { attempted: 0, recovered: 0, stillFailed: 0 };
+
+  for (const item of failed) {
+    const connection = await getPrisma().whatsAppConnection.findFirst({
+      where: { id: item.connectionId ?? "", tenantId: actor.tenantId },
+    });
+    if (!connection) continue;
+    const provider = getConnectionProvider(connection);
+    const stored = (item.payload ?? {}) as Record<string, unknown>;
+    // El payload guardado ya es el objeto `data` sanitizado; no se anida dos veces.
+    const payload = {
+      event: item.event,
+      data: stored.data ?? stored,
+      ...(stored.timestamp !== undefined ? { timestamp: stored.timestamp } : {}),
+    };
+    const normalized = provider.normalizeWebhook(payload);
+    result.attempted += 1;
+    try {
+      const handled = await applyNormalizedEvents(connection, normalized);
+      await getPrisma().webhookEvent.update({
+        where: { id: item.id },
+        data: { status: handled ? "PROCESSED" : "IGNORED", processedAt: new Date(), error: null },
+      });
+      if (handled) result.recovered += 1;
+    } catch (error) {
+      await getPrisma().webhookEvent.update({
+        where: { id: item.id },
+        data: { error: error instanceof Error ? error.message.slice(0, 300) : "error" },
+      });
+      result.stillFailed += 1;
+    }
+  }
+  return result;
+}
+
+export async function listFailedWebhooks(actor: CatalogActor) {
+  const rows = await getPrisma().webhookEvent.findMany({
+    where: { tenantId: actor.tenantId, status: "FAILED" },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+    select: { id: true, event: true, error: true, createdAt: true },
+  });
+  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
 }
 
 async function identifyProducts(tenantId: string, body: string) {
@@ -400,6 +608,34 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
   });
   const products = await identifyProducts(connection.tenantId, item.body);
   const context = { products } as Prisma.InputJsonValue;
+  const previewText = item.body || (item.kind === "IMAGE" ? "[Foto]" : item.kind !== "TEXT" ? `[${item.kind}]` : "");
+
+  // Desencripta y guarda la imagen entrante. Si falla, se conserva el mensaje con
+  // media.status="unavailable" para no perder el historial ni bloquear el webhook.
+  let mediaState: Prisma.InputJsonValue = {};
+  if (item.media?.type === "image" && item.media.url && item.media.mediaKey) {
+    try {
+      const provider = getConnectionProvider(connection);
+      const decrypted = await provider.decryptMedia?.(getConnectionCredentials(connection), {
+        messageId: item.externalId,
+        media: item.media,
+      });
+      if (decrypted) {
+        const storedPath = await saveWhatsappImage(connection.tenantId, item.externalId, decrypted.bytes, decrypted.mimeType);
+        mediaState = {
+          type: "image",
+          status: "ready",
+          path: storedPath,
+          mimeType: decrypted.mimeType,
+          fileName: item.media.fileName,
+        } as Prisma.InputJsonValue;
+      } else {
+        mediaState = { type: "image", status: "unavailable" } as Prisma.InputJsonValue;
+      }
+    } catch {
+      mediaState = { type: "image", status: "unavailable" } as Prisma.InputJsonValue;
+    }
+  }
 
   if (!conversation) {
     conversation = await getPrisma().conversation.create({
@@ -409,8 +645,8 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
         contactId: contact.id,
         status: "PENDING",
         mode: "HUMAN",
-        unreadCount: 1,
-        lastMessage: item.body.slice(0, 200),
+        unreadCount: item.fromMe ? 0 : 1,
+        lastMessage: previewText.slice(0, 200),
         lastMessageAt: item.eventAt ?? new Date(),
         context,
       },
@@ -424,8 +660,8 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
       where: { id: conversation.id },
       data: {
         status: reopened ? "PENDING" : conversation.status,
-        unreadCount: conversation.unreadCount + 1,
-        lastMessage: item.body.slice(0, 200),
+        unreadCount: item.fromMe ? conversation.unreadCount : conversation.unreadCount + 1,
+        lastMessage: previewText.slice(0, 200),
         lastMessageAt: item.eventAt ?? new Date(),
         context: (products.length ? context : conversation.context) as Prisma.InputJsonValue,
       },
@@ -434,6 +670,40 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
       await getPrisma().conversationEvent.create({
         data: { tenantId: connection.tenantId, conversationId: conversation.id, type: "REOPENED", description: "Reabierta por un mensaje del cliente" },
       });
+    }
+  }
+
+  // Los mensajes enviados desde la bandeja ya se crearon al encolarlos. El webhook
+  // de Wasender (messages.upsert con fromMe=true) debe reconciliarse con ese row,
+  // no crear un duplicado. Se busca el recién creado sin externalId y con el mismo
+  // contenido dentro de una ventana corta.
+  if (item.fromMe) {
+    const sentLocally = await getPrisma().conversationMessage.findFirst({
+      where: {
+        tenantId: connection.tenantId,
+        connectionId: connection.id,
+        conversationId: conversation.id,
+        direction: "OUTBOUND",
+        externalId: null,
+        content: item.body || null,
+        createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (sentLocally) {
+      await getPrisma().conversationMessage.update({
+        where: { id: sentLocally.id },
+        data: {
+          externalId: item.externalId,
+          status: "SENT",
+          eventAt: item.eventAt ?? sentLocally.eventAt,
+        },
+      });
+      await getPrisma().conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessage: previewText.slice(0, 200), lastMessageAt: item.eventAt ?? new Date() },
+      });
+      return;
     }
   }
 
@@ -448,6 +718,7 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
         kind: item.kind,
         authorName: item.fromMe ? connection.name : contactLabel(contact),
         content: item.body,
+        media: mediaState,
         status: item.fromMe ? "SENT" : "DELIVERED",
         eventAt: item.eventAt,
       },

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { LandingView } from "./landing-view";
+import { LandingDesignEditor } from "./landing-design-editor";
+import { ScaledPreview } from "./scaled-preview";
 import { inputClass } from "@/components/catalog/products-view";
 import type { FaqDTO, LandingContentDTO, LandingDTO } from "@/lib/landings/service";
 import type { ProductDTO } from "@/lib/catalog/service";
@@ -49,6 +51,7 @@ export function LandingEditor({ landing, product, tenant, canPublish }: Props) {
     heroImageId: landing.draft.heroImageId,
     benefits: landing.draft.benefits,
     faqs: landing.draft.faqs,
+    design: landing.draft.design,
   });
   const [revision, setRevision] = useState(landing.draft.revision);
   const [status, setStatus] = useState<string | null>(null);
@@ -78,6 +81,7 @@ export function LandingEditor({ landing, product, tenant, canPublish }: Props) {
         heroImageId: data.landing.draft.heroImageId,
         benefits: data.landing.draft.benefits,
         faqs: data.landing.draft.faqs,
+        design: data.landing.draft.design,
       });
       setStatus("Borrador guardado. La versión pública no se ha cambiado.");
       router.refresh();
@@ -134,7 +138,7 @@ export function LandingEditor({ landing, product, tenant, canPublish }: Props) {
               Ver versión pública <Icon name="chevronRight" size={14} />
             </Link>
           ) : null}
-          <Link href={`/dashboard/landings/${landing.id}/preview`} target="_blank" className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm">
+          <Link href={`/preview/landing/${landing.id}`} target="_blank" className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm">
             <Icon name="eye" size={16} /> Vista previa
           </Link>
           <button type="button" onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium disabled:opacity-50">
@@ -255,17 +259,28 @@ export function LandingEditor({ landing, product, tenant, canPublish }: Props) {
                   + Añadir pregunta
                 </button>
               </div>
+
+              <details className="rounded-lg border border-border bg-background">
+                <summary className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted">
+                  Diseño y opciones de la landing
+                </summary>
+                <div className="border-t border-border p-4">
+                  <LandingDesignEditor design={form.design} onChange={(design) => update("design", design)} />
+                </div>
+              </details>
             </div>
           </section>
         </div>
 
-        <div className="lg:col-span-7">
+        <div className="self-start lg:sticky lg:top-[92px] lg:col-span-7">
           <div className="mb-2 flex items-center justify-between text-xs text-muted">
             <span>Vista previa del borrador</span>
             <span>No visible para clientes</span>
           </div>
-          <div className="max-h-[900px] overflow-y-auto rounded-xl border border-border shadow-sm">
-            <LandingView tenant={tenant} product={adminToStoreProduct(product)} content={form} mode="preview" landingSlug={landing.slug} />
+          <div className="h-[calc(100vh-140px)] min-h-[420px] overflow-y-auto rounded-xl border border-border shadow-sm" style={{ scrollbarGutter: "stable" }}>
+            <ScaledPreview>
+              <LandingView tenant={tenant} product={adminToStoreProduct(product)} content={form} mode="preview" landingSlug={landing.slug} landingId={landing.id} />
+            </ScaledPreview>
           </div>
         </div>
       </div>
