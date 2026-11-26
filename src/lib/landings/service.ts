@@ -10,6 +10,7 @@ import { assertAuthenticated } from "../auth/guards";
 import { shortSuffix, slugify } from "../utils/slug";
 import {
   getStoreProduct,
+  resolveStoreWhatsappPhone,
   whatsappUrl,
   type StoreProductDTO,
   type StoreTenantDTO,
@@ -38,12 +39,34 @@ export class LandingConflictError extends Error {
 
 export type FaqDTO = { question: string; answer: string };
 
+import {
+  DEFAULT_LANDING_DESIGN,
+  LANDING_BUTTON_STYLES,
+  LANDING_EFFECTS,
+  LANDING_HEADLINE_SIZES,
+  LANDING_IMAGE_FITS,
+  LANDING_LAYOUTS,
+  LANDING_SPACINGS,
+  type LandingDesignDTO,
+} from "./design";
+
+export {
+  DEFAULT_LANDING_DESIGN,
+  LANDING_BUTTON_STYLES,
+  LANDING_HEADLINE_SIZES,
+  LANDING_IMAGE_FITS,
+  LANDING_LAYOUTS,
+  LANDING_SPACINGS,
+  type LandingDesignDTO,
+};
+
 export type LandingContentDTO = {
   headline: string;
   summary: string;
   heroImageId: string | null;
   benefits: string[];
   faqs: FaqDTO[];
+  design: LandingDesignDTO;
 };
 
 export type LandingVersionDTO = LandingContentDTO & { version: number; revision: number };
@@ -103,6 +126,116 @@ function parseFaqs(value: unknown): FaqDTO[] {
     .filter((item) => item.question && item.answer);
 }
 
+function parseDesign(value: Prisma.JsonValue): LandingDesignDTO {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const design = { ...DEFAULT_LANDING_DESIGN };
+  const enumValue = <T extends string>(key: keyof LandingDesignDTO, allowed: readonly T[]) => {
+    const candidate = raw[key as string];
+    if (typeof candidate === "string" && (allowed as readonly string[]).includes(candidate)) {
+      (design as Record<string, unknown>)[key as string] = candidate;
+    }
+  };
+  const bool = (key: keyof LandingDesignDTO) => {
+    if (typeof raw[key as string] === "boolean") (design as Record<string, unknown>)[key as string] = raw[key as string];
+  };
+  const text = (key: keyof LandingDesignDTO, max: number) => {
+    const candidate = raw[key as string];
+    if (typeof candidate === "string") (design as Record<string, unknown>)[key as string] = candidate.slice(0, max);
+  };
+  const color = (key: keyof LandingDesignDTO) => {
+    const candidate = raw[key as string];
+    if (typeof candidate === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate)) {
+      (design as Record<string, unknown>)[key as string] = candidate;
+    }
+  };
+  const number = (key: keyof LandingDesignDTO, min: number, max: number) => {
+    const candidate = raw[key as string];
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      (design as Record<string, unknown>)[key as string] = Math.min(max, Math.max(min, Math.round(candidate)));
+    }
+  };
+  enumValue("layout", LANDING_LAYOUTS);
+  enumValue("imageFit", LANDING_IMAGE_FITS);
+  enumValue("headlineSize", LANDING_HEADLINE_SIZES);
+  enumValue("buttonStyle", LANDING_BUTTON_STYLES);
+  enumValue("spacing", LANDING_SPACINGS);
+  enumValue("effect", LANDING_EFFECTS);
+  number("imageHeight", 200, 640);
+  number("imageRadius", 0, 48);
+  number("imagePositionX", 0, 100);
+  number("imagePositionY", 0, 100);
+  number("imageZoom", 100, 300);
+  number("effectIntensity", 1, 3);
+  number("effectSpeed", 1, 3);
+  color("primaryColor"); color("backgroundColor"); color("textColor");
+  color("buttonColor"); color("buttonTextColor");
+  text("eyebrow", 80); text("badgeText", 60); text("buttonText", 80);
+  text("priceLabel", 40); text("priceText", 40); text("oldPriceText", 40);
+  text("discountText", 20); text("footerText", 300); text("effectEmoji", 8);
+  (["showBadge", "showReference", "showPrice", "showWhatsapp", "showBenefits", "showFaqs", "showFooter", "showSummary", "showVariants"] as const).forEach(bool);
+  return design;
+}
+
+function validateDesign(value: unknown, current: LandingDesignDTO): LandingDesignDTO {
+  if (value === undefined) return current;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new LandingValidationError("Las opciones de diseño no son válidas");
+  }
+  const raw = value as Record<string, unknown>;
+  const validEnums: Record<string, readonly string[]> = {
+    layout: LANDING_LAYOUTS,
+    imageFit: LANDING_IMAGE_FITS,
+    headlineSize: LANDING_HEADLINE_SIZES,
+    buttonStyle: LANDING_BUTTON_STYLES,
+    spacing: LANDING_SPACINGS,
+  };
+  for (const [key, allowed] of Object.entries(validEnums)) {
+    const candidate = raw[key];
+    if (candidate !== undefined && (typeof candidate !== "string" || !allowed.includes(candidate))) {
+      throw new LandingValidationError(`Opción de diseño no válida: ${key}`);
+    }
+  }
+  for (const key of ["primaryColor", "backgroundColor", "textColor", "buttonColor", "buttonTextColor"]) {
+    const candidate = raw[key];
+    if (candidate !== undefined && (typeof candidate !== "string" || !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(candidate))) {
+      throw new LandingValidationError(`Color no válido en ${key}. Use formato #RRGGBB`);
+    }
+  }
+  for (const [key, max] of Object.entries({
+    eyebrow: 80, badgeText: 60, buttonText: 80, priceLabel: 40,
+    priceText: 40, oldPriceText: 40, discountText: 20, footerText: 300,
+    effectEmoji: 8,
+  })) {
+    const candidate = raw[key];
+    if (candidate !== undefined && (typeof candidate !== "string" || candidate.length > max || !noMarkup(candidate))) {
+      throw new LandingValidationError(`Texto no válido en ${key} (máximo ${max} caracteres, sin HTML)`);
+    }
+  }
+  const numericRanges: Record<string, [number, number]> = {
+    imageHeight: [200, 640],
+    imageRadius: [0, 48],
+    imagePositionX: [0, 100],
+    imagePositionY: [0, 100],
+    imageZoom: [100, 300],
+    effectIntensity: [1, 3],
+    effectSpeed: [1, 3],
+  };
+  for (const [key, [min, max]] of Object.entries(numericRanges)) {
+    const candidate = raw[key];
+    if (candidate !== undefined && (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < min || candidate > max)) {
+      throw new LandingValidationError(`Valor no válido en ${key} (${min}-${max})`);
+    }
+  }
+  for (const key of ["showBadge", "showReference", "showPrice", "showWhatsapp", "showBenefits", "showFaqs", "showFooter", "showSummary", "showVariants"]) {
+    if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
+      throw new LandingValidationError(`Opción no válida en ${key}`);
+    }
+  }
+  return parseDesign(raw as Prisma.JsonValue);
+}
+
 function toVersionDTO(version: {
   version: number;
   revision: number;
@@ -111,6 +244,7 @@ function toVersionDTO(version: {
   heroImageId: string | null;
   benefits: Prisma.JsonValue;
   faqs: Prisma.JsonValue;
+  design: Prisma.JsonValue;
 }): LandingVersionDTO {
   return {
     version: version.version,
@@ -120,6 +254,7 @@ function toVersionDTO(version: {
     heroImageId: version.heroImageId,
     benefits: parseBenefits(version.benefits),
     faqs: parseFaqs(version.faqs),
+    design: parseDesign(version.design),
   };
 }
 
@@ -134,12 +269,7 @@ async function validateHeroImage(tenantId: string, productId: string, heroImageI
   return image.id;
 }
 
-function validateContent(input: Record<string, unknown>, content: {
-  headline: string;
-  summary: string;
-  benefits: string[];
-  faqs: FaqDTO[];
-}) {
+function validateContent(input: Record<string, unknown>, content: LandingContentDTO) {
   const headline = asText(input.headline);
   const summary = asText(input.summary);
   if (!headline || headline.length < 3 || headline.length > 120 || !noMarkup(headline)) {
@@ -179,6 +309,7 @@ function validateContent(input: Record<string, unknown>, content: {
     summary,
     benefits: benefits as string[],
     faqs: faqs as FaqDTO[],
+    design: validateDesign(input.design, content.design ?? DEFAULT_LANDING_DESIGN),
   };
 }
 
@@ -243,7 +374,7 @@ async function uniqueSlug(tenantId: string, preferred: string): Promise<string> 
 
 export async function createLanding(
   actor: Actor,
-  input: { productId?: unknown; slug?: unknown; headline?: unknown },
+  input: { productId?: unknown; slug?: unknown; headline?: unknown; design?: unknown },
 ): Promise<LandingDTO> {
   assertLandingManager(actor.role);
   if (typeof input.productId !== "string" || !input.productId) {
@@ -264,16 +395,20 @@ export async function createLanding(
   });
   if (existing) throw new LandingConflictError("Este producto ya tiene una landing");
 
-  const headline = asText(input.headline) ?? product.name;
-  const content = validateContent({ headline, summary: product.description ?? "" }, {
+  // Los campos opcionales llegan como string vacío desde el formulario: se tratan
+  // como "no proporcionados" para usar los valores por defecto del producto.
+  const headline = asText(input.headline) || product.name;
+  const content = validateContent({ headline, summary: product.description ?? "", design: input.design }, {
     headline,
     summary: product.description ?? "",
+    heroImageId: null,
     benefits: [],
     faqs: [],
+    design: DEFAULT_LANDING_DESIGN,
   });
 
   const landingId = await getPrisma().$transaction(async (tx) => {
-    const slug = await uniqueSlug(actor.tenantId, asText(input.slug) ?? product.slug);
+    const slug = await uniqueSlug(actor.tenantId, asText(input.slug) || product.slug);
     const landing = await tx.landing.create({
       data: {
         tenantId: actor.tenantId,
@@ -293,6 +428,7 @@ export async function createLanding(
         heroImageId: product.images[0]?.id ?? null,
         benefits: content.benefits as unknown as Prisma.InputJsonValue,
         faqs: content.faqs as unknown as Prisma.InputJsonValue,
+        design: content.design as unknown as Prisma.InputJsonValue,
         createdById: actor.userId,
       },
     });
@@ -340,6 +476,7 @@ export async function saveLandingDraft(
           heroImageId,
           benefits: validated.benefits as unknown as Prisma.InputJsonValue,
           faqs: validated.faqs as unknown as Prisma.InputJsonValue,
+          design: validated.design as unknown as Prisma.InputJsonValue,
           createdById: actor.userId,
         },
       });
@@ -361,6 +498,7 @@ export async function saveLandingDraft(
           heroImageId,
           benefits: validated.benefits as unknown as Prisma.InputJsonValue,
           faqs: validated.faqs as unknown as Prisma.InputJsonValue,
+          design: validated.design as unknown as Prisma.InputJsonValue,
           revision: { increment: 1 },
         },
       });
@@ -404,13 +542,23 @@ export async function publishLanding(
 export async function getLandingPreview(actor: Actor, landingId: string) {
   const landing = await findOwnedLanding(actor, landingId);
   if (!landing.draft) throw new LandingNotFoundError();
-  const product = await getStoreProduct(actor.tenantId, landing.product.slug);
+  // La vista previa es privada: debe funcionar aunque el producto aún no esté
+  // visible en la tienda pública.
+  const product = await getStoreProduct(actor.tenantId, landing.product.slug, { includeInvisible: true });
   const tenant = await getPrisma().tenant.findFirst({
     where: { id: actor.tenantId },
     select: { id: true, name: true, slug: true, whatsappPhone: true },
   });
   if (!tenant || !product) throw new LandingNotFoundError();
-  return { tenant, product, content: toVersionDTO(landing.draft), landing };
+  return {
+    tenant: {
+      ...tenant,
+      whatsappPhone: await resolveStoreWhatsappPhone(tenant.id, tenant.whatsappPhone),
+    } as StoreTenantDTO,
+    product,
+    content: toVersionDTO(landing.draft),
+    landing,
+  };
 }
 
 export async function getPublishedLanding(tenantSlug: string, landingSlug: string) {
@@ -431,7 +579,10 @@ export async function getPublishedLanding(tenantSlug: string, landingSlug: strin
   if (!product) return null;
 
   return {
-    tenant: tenant as StoreTenantDTO,
+    tenant: {
+      ...tenant,
+      whatsappPhone: await resolveStoreWhatsappPhone(tenant.id, tenant.whatsappPhone),
+    } as StoreTenantDTO,
     product,
     content: toVersionDTO(landing.published),
     slug: landing.slug,

@@ -145,6 +145,13 @@ export async function createConnectionFromQr(actor: CatalogActor, input: Record<
   const provider = requireProvider("WASENDER");
   if (!provider.createSession) throw new WhatsAppError("Este proveedor no permite crear sesiones", 400);
 
+  // Un negocio solo puede asociar una cuenta de WhatsApp. Se verifica ANTES de
+  // crear la sesión remota para no dejar sesiones huérfanas en WasenderAPI.
+  const existingCount = await getPrisma().whatsAppConnection.count({ where: { tenantId: actor.tenantId } });
+  if (existingCount > 0) {
+    throw new WhatsAppError("Este negocio ya tiene una cuenta de WhatsApp vinculada. Elimínela antes de conectar otra.", 409);
+  }
+
   const name = clean(input.name, "Nombre de conexión", 80, true);
   const expectedPhone = normalizePhone(input.expectedPhone);
   if (!expectedPhone) throw new WhatsAppError("El número de WhatsApp es obligatorio para crear la sesión");
@@ -159,6 +166,9 @@ export async function createConnectionFromQr(actor: CatalogActor, input: Record<
   try {
     const row = await getPrisma().$transaction(async (tx) => {
       const count = await tx.whatsAppConnection.count({ where: { tenantId: actor.tenantId } });
+      if (count > 0) {
+        throw new WhatsAppError("Este negocio ya tiene una cuenta de WhatsApp vinculada. Elimínela antes de conectar otra.", 409);
+      }
       return tx.whatsAppConnection.create({
         data: {
           tenantId: actor.tenantId,

@@ -44,7 +44,9 @@ export function Sidebar({ tenants, activeTenant, userName, userEmail }: Props) {
         <nav className="flex flex-col gap-1 px-3">
           {items.map((item) => {
             if (item.href) {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const active = item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
                 <Link
                   key={item.label}

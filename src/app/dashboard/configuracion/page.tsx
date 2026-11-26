@@ -1,30 +1,44 @@
-import Link from "next/link";
-import { WhatsappSettings } from "@/components/tenants/whatsapp-settings";
+import { ConfigurationCards } from "@/components/settings/configuration-cards";
 import { requireUser } from "@/lib/auth/session";
+import { listCategories, requireCatalogContext } from "@/lib/catalog/service";
 import { getActiveTenantSettings } from "@/lib/tenants/service";
+import { listConnections, providerCatalog } from "@/lib/whatsapp/service";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionPage() {
-  const user = await requireUser();
-  const settings = await getActiveTenantSettings(user.id);
+  const [user, catalogActor] = await Promise.all([requireUser(), requireCatalogContext()]);
+  const [settings, categories, connections] = await Promise.all([
+    getActiveTenantSettings(user.id),
+    listCategories(catalogActor),
+    listConnections(catalogActor),
+  ]);
+  const primary = connections.find((connection) => connection.isPrimary) ?? connections[0] ?? null;
+  const connection = primary
+    ? {
+        status: primary.status,
+        verifiedPhone: primary.verifiedPhone,
+        expectedPhone: primary.expectedPhone,
+        providerLabel: primary.providerLabel,
+        webhookUrl: primary.webhookUrl,
+      }
+    : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Configuración</h1>
         <p className="mt-1 text-xs text-muted">Negocio: {settings.name}</p>
       </div>
-      <WhatsappSettings phone={settings.whatsappPhone} canEdit={settings.role === "OWNER"} />
-      <Link
-        href="/dashboard/configuracion/whatsapp"
-        className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium hover:bg-background"
-      >
-        Configurar WasenderAPI y webhooks <span aria-hidden>→</span>
-      </Link>
-      <p className="text-xs text-muted">
-        Próximamente: dominios personalizados, políticas de tienda y métodos de entrega.
-      </p>
+      <ConfigurationCards
+        settings={settings}
+        categories={categories}
+        connection={connection}
+        connections={connections}
+        providers={providerCatalog()}
+        canEdit={settings.role === "OWNER"}
+        webhookBaseConfigured={Boolean(process.env.WHATSAPP_WEBHOOK_BASE_URL)}
+      />
     </div>
   );
 }

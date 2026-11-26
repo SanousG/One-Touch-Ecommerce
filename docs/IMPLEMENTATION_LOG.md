@@ -179,6 +179,96 @@ Se agregó la opción **«Conectar con QR»** en `/dashboard/configuracion/whats
 - El borrado también intenta eliminar la sesión en WasenderAPI mediante `DELETE /api/whatsapp-sessions/{id}` (método opcional `deleteSession` del proveedor, con el PAT solo en servidor). Si la eliminación remota falla, el borrado local continúa para no dejar la conexión atascada. Se agregó `deleteWasenderSession` en `sessions.ts`.
 - **Limpieza real ejecutada:** se eliminó la sesión huérfana `134775` («Ecommerce - Yeltsin», `logged_out`) que quedó en Wasender tras borrar su conexión local. Respuesta HTTP 204; verificado que ya no aparece.
 - **Renovación de QR:** se agregó el botón **«Generar nuevo QR»** en el modal de vinculación, que llama a `POST /api/admin/whatsapp/sessions/[id]/regenerate`. El proveedor ejecuta `POST /api/whatsapp-sessions/{id}/restart` (respaldos: `connect`, `qr-code`, `qr`, `qrcode`) y devuelve un QR fresco convertido a PNG local. Para recuperar el modal de una conexión pendiente tras recargar la página, se agregó el botón **«Ver QR»** en la tarjeta de cada conexión no conectada. El polling conserva el QR mostrado si el proveedor no devuelve uno nuevo de inmediato.
+### AA. Una sola cabecera en la landing pública
+
+La landing pública heredaba el layout de la tienda (`StoreHeader` + `StoreFooter`) y además renderizaba su propia cabecera. Se creó `StoreShell` (cliente, usa `usePathname`) que omite cabecera/pie de tienda cuando la ruta contiene `/landing/`. **Verificado:** en la landing no aparece «Carrito» y sí «Ver tienda»; en la tienda ocurre al revés.
+
+### Z. URL pública de la landing
+
+El usuario reportó 404 al abrir `/tienda/ganga-online/landing/mouse-logitech-x2`. Dos causas: (1) el producto estaba `storeVisible=false` (se activó vía `PATCH /api/admin/products/[id]` → `storeVisible:true`) y (2) el slug real del tenant es `ganga-online-zq1p8a`, no `ganga-online`. La URL correcta, tomada del botón «copiar enlace» del listado, es `/tienda/ganga-online-zq1p8a/landing/mouse-logitech-x2`. **Validado:** HTTP 200, HTML con la landing y el botón de WhatsApp. Para anuncios se requiere el dominio desplegado (localhost solo funciona en esta máquina).
+
+### Y. Efectos decorativos por landing
+
+El usuario pidió ambientar las landing por evento (Navidad, Año nuevo, Halloween, Carnaval, Cumpleaños o propio). Se agregaron al diseño: `effect` (enum `none|snow|newyear|halloween|carnival|birthday|custom`), `effectIntensity` (1-3), `effectSpeed` (1-3) y `effectEmoji` (máx. 8). Controles en «Diseño y Opciones → Efecto de evento». Render en `LandingEffect` con partículas emoji animadas por CSS (sin librerías ni recursos externos), `pointer-events:none`, `aria-hidden` y `@media (prefers-reduced-motion: reduce)` para ocultarlas. **Validado:** PATCH con `snow/3/3` devolvió 200 y el preview mostró copos, trineo, keyframes y `pointer-events:none`; se restauró el diseño original.
+
+### X. Botón de WhatsApp en la landing
+
+El usuario preguntó por qué el botón decía «La consulta por WhatsApp todavía no está disponible» pese a tener WhatsApp conectado. Causa: la conexión estaba `CONNECTED` con `verifiedPhone=930956208`, pero `tenants.whatsappPhone` seguía `null`; la tienda/landing leían ese campo viejo. Además el modo preview desactivaba el botón a propósito.
+
+Se agregó `resolveStoreWhatsappPhone` en `store/service.ts`: toma el `verifiedPhone` (o `expectedPhone`) de la conexión `CONNECTED` del tenant y usa el campo del tenant solo como respaldo. Lo usan `getStoreBySlug`, `getPublishedLanding` y `getLandingPreview`. En preview el botón ahora queda habilitado y llama al nuevo endpoint privado `POST /api/admin/landings/[id]/whatsapp` (usa el borrador, no requiere publicación). `LandingWhatsappButton` acepta `endpoint` opcional. **Validado:** preview sin mensaje de "no disponible", endpoint preview 200 con URL `https://wa.me/930956208?text=...`.
+
+### W. Scroll intermitente en el preview del editor
+
+Al cambiar la altura de la foto, el preview aparecía/desaparecía el scrollbar en bucle. Causa: `ScaledPreview` observaba también el contenedor; el scrollbar reducía el ancho, eso cambiaba el escalado y el escalado cambiaba la altura. Se dejó `ResizeObserver` solo sobre el contenido, se agregó `scrollbar-gutter: stable` al contenedor con scroll y se evita actualizar el estado si el valor no cambia. `lint`, `typecheck`, `build` y Docker OK.
+
+### V. Precio con campaña en la landing
+
+El usuario pidió poder mostrar un precio de campaña y uno anterior. Se agregaron tres campos al diseño (guardados por versión): `priceText` (si está vacío usa el precio del catálogo), `oldPriceText` (se muestra tachado) y `discountText` (insignia, ej. `-50%`), con validación de longitud y sin HTML. Aparecen en «Diseño y opciones → Textos». **Validado:** PATCH con `S/ 120.00`, `S/ 240.00` y `-50%` devolvió 200 y el preview mostró el precio actual, el anterior con `line-through` y la insignia; se restauró el diseño original.
+
+### U. Preview fija en el editor
+
+El panel de vista previa del editor ahora es `sticky` (`lg:sticky lg:top-[92px]`, `self-start`) y tiene altura `calc(100vh - 140px)` con scroll interno, así permanece visible mientras se baja por «Diseño y opciones de la landing» y se pueden ver los cambios en vivo sin perder el panel.
+
+### T. Preview del editor igual a la página real
+
+El usuario notó que la vista previa dentro del editor se veía apilada/diferente porque el panel es angosto y no alcanzaba el breakpoint `lg`. Se agregó `ScaledPreview`: renderiza `LandingView` a 1280 px de ancho y aplica `transform: scale(anchoDisponible / 1280)` con `transform-origin: top left`, ajustando la altura con `ResizeObserver`. Así el editor muestra el mismo diseño de escritorio que `/preview/landing/[id]`, manteniendo los cambios en vivo. **Verificado en HTML:** `width:1280px` y `transform-origin:top left` presentes en la página del editor.
+
+### S. Encuadre manual de la foto (nuevo)
+
+El usuario pidió poder elegir qué parte de la foto se muestra en vez del encuadre automático. Se agregaron tres opciones al diseño (guardadas por versión): `imagePositionX` (0-100 %), `imagePositionY` (0-100 %) e `imageZoom` (100-300 %), con valores por defecto 50/50/100. Aparecen como deslizadores en el editor bajo «Encuadre de la foto» y aplican cuando el ajuste es «Cubrir»: `object-position` y `transform: scale()` con origen en el punto elegido. **Validado:** PATCH con `20/75/150` devolvió 200 y el preview contuvo `object-position:20% 75%` y `scale(1.5)`; se restauró el diseño original.
+
+### R. Ajustes visuales de la landing
+
+- **Botón final:** la CTA de la sección «¿Necesitas más información?» ahora siempre está centrada y alineada al centro (antes seguía la alineación del bloque de texto y parecía descentrada/cortada). `LandingWhatsappButton` acepta `align`.
+- **Contorno de la foto:** con `imageFit=contain` ya no se dibuja un recuadro gris con la imagen dentro; el `<img>` se ajusta a su propia proporción (`height:auto; width:auto; max-height:<altura>; max-width:100%`) y el `borderRadius` se aplica a la imagen. Con `cover` se mantiene el recuadro fijo. **Verificado en HTML:** `max-height:420px` presente, sin `object-contain p-3`, y botón final `flex justify-center`.
+
+### Q. Diseño personalizable por landing (nuevo)
+
+A pedido del usuario se agregaron opciones de diseño por landing, con migración `20261126090000_landing_design` (`landing_versions.design JSONB NOT NULL DEFAULT '{}'`). Los valores por defecto se aplican a versiones antiguas.
+
+- Tipos y constantes compartidas en `src/lib/landings/design.ts` (sin `server-only`) para que el editor cliente y el render servidor usen lo mismo. Validación estricta en `validateContent`/`validateDesign` (colores `#RGB`/`#RRGGBB`, enums, longitudes, rangos y booleanos).
+- **Opciones:** distribución (texto izquierda/derecha, imagen arriba, centrado); foto completa (`contain`, por defecto) o cubrir (`cover`), altura 200-640 px y esquinas 0-48 px; colores principal/fondo/texto/botón/texto del botón; estilo del botón (relleno o borde); tamaño del titular; espaciado; textos editables (etiqueta superior, insignia, etiqueta de precio, texto del botón, pie); y 9 interruptores para mostrar/ocultar insignia, referencia, precio, WhatsApp, descripción, variantes, beneficios, FAQs y sección final.
+- Editor: sección plegable «Diseño y opciones de la landing» con `LandingDesignEditor` y botón «Restablecer». `LandingWhatsappButton` acepta estilo para aplicar colores del tema.
+- **Validado en vivo:** valores por defecto (`imageFit=contain`, `layout=split-left`, color `#4f46e5`) y preview 200 con `object-contain`; PATCH con diseño personalizado (`centered`, `cover`, `#ff0000`, botón «Consultar ahora», insignia oculta) devolvió 200 y el preview reflejó color, texto, `object-cover` y ocultación. Se restauró el diseño original.
+
+### P. Vista previa sin panel de control
+
+El usuario indicó que la vista previa debe verse como la ve el cliente, sin el sidebar «Inicio/Productos/…». Como la ruta antigua vivía bajo `/dashboard`, heredaba el layout del panel. Se creó la ruta raíz `/preview/landing/[id]` (solo el `LandingView`, sin sidebar ni cabecera de administración), se actualizaron los dos enlaces («Vista previa» del editor y el icono del listado, ambos con `target="_blank"`) y se eliminó `/dashboard/landings/[id]/preview`. Sigue requiriendo sesión y membresía. **Verificado:** nueva ruta 200 con el producto y sin «NAVEGACIÓN» ni «Panel de control» en el HTML; ruta antigua 404. Se conserva la franja ámbar «Vista previa privada del borrador» para distinguirla de la página publicada.
+
+### O. Vista previa de landing (corrección 404)
+
+La vista previa `/dashboard/landings/[id]/preview` devolvía 404 aunque la landing existía. Causa: `getLandingPreview` llamaba a `getStoreProduct`, que filtra `storeVisible=true` (consulto pública); el producto de la landing estaba `ACTIVE` pero no visible en tienda, así que el producto devuelto era `null`. Se agregó la opción `includeInvisible` a `getStoreProduct` y la vista previa la usa, manteniendo el filtro para la tienda pública. **Validado:** la URL de preview de `cmwxivw3r000301naer1zdc7a` pasó de 404 a **200** y el HTML contiene el producto y el modo «Vista previa».
+
+### N. Crear landing: campos opcionales (corrección)
+
+El diálogo «Nueva landing» enviaba `slug: ""` y `headline: ""` aun dejando los campos vacíos; el servidor interpretaba el string vacío como valor provisto y fallaba con «El titular debe tener entre 3 y 120 caracteres y sin HTML». Se corrigió en `landings/service.ts` (`asText(...) || porDefecto`) y en el cliente (ya no envía las claves vacías). También se agregaron textos de ayuda bajo ambos campos. **Validado:** crear landing con `slug: ""` y `headline: ""` devolvió 201, con slug generado `mouse-logitech-x2`; la landing de prueba se eliminó.
+
+### M. Foto al crear producto (nuevo)
+
+El diálogo «Nuevo producto» no tenía campo de imagen (solo la edición). Se agregó un selector opcional «Foto del producto (opcional)» (JPEG/PNG/WebP, máx. 5 MB). El flujo: primero crea el producto, luego sube el archivo a `POST /api/admin/products/[id]/images`, que usa `saveProductImage` → **Google Drive** (`drive:<fileId>`). Si la subida falla, el producto queda creado y se muestra el error con opción de cerrar; el botón pasa a «Listo» para evitar crear un segundo producto.
+
+- **Validado en vivo:** crear producto → subir PNG de 69 bytes → `storageKey=drive:1YYWkSaxLaENMG3UvxTH8jBwxXmYKH8rD` en BD; lectura por `/api/admin/products/images/[id]/file` devolvió 200 y los bytes PNG. La ruta pública `/api/images/[id]/file` devuelve 404 si el producto no está `ACTIVE` y `storeVisible=true` (comportamiento existente, no un error). Se eliminaron el producto de prueba y su archivo de Drive.
+- A pedido del usuario se quitaron todas las menciones a Drive en la interfaz: el selector dice «JPG / PNG / WebP · máx. 5 MB» y el error de subida es «Producto creado, pero no se pudo subir la imagen…». Los errores internos de Drive no llegan al cliente (`catalogErrorResponse` los convierte en un mensaje genérico). Verificado: no queda texto «Drive» en componentes ni en el bundle cliente.
+
+### L. Sidebar y rendimiento (correcciones)
+
+- **Dos items resaltados a la vez:** `Sidebar` marcaba «Inicio» como activo en cualquier subpágina porque usaba `pathname.startsWith("/dashboard/")` con `href="/dashboard"`. Se especializó: para `/dashboard` solo coincide la ruta exacta; para el resto se mantiene el prefijo. Verificado en HTML: exactamente **1 item resaltado** en `/dashboard`, `/dashboard/products` y `/dashboard/configuracion`.
+- **Lentitud:** se midió Supabase desde este equipo: conexión TLS ~1.0-1.35 s y cada query ~150-210 ms (región `us-west-2`). El layout y las páginas repetían consultas de sesión/tenant. Se memoizaron por petición con `cache()` de React: `getMembershipRole`, `listUserTenants`, `getActiveTenantForUser` y `getActiveTenantSettings` en `src/lib/tenants/service.ts` (`getSession` ya estaba memoizado). Medición antes/después: `/dashboard` 1914→1127 ms, `/dashboard/configuracion` 1271→968 ms, `/login` 2246→1453 ms (promedios de 3 peticiones). El piso restante sigue siendo la latencia de red a Supabase; cambiar a Postgres local reduciría las consultas a milisegundos pero requeriría decisions del usuario (los datos actuales están en Supabase).
+
+### K. Centro de configuración (nuevo)
+
+A pedido del usuario, y **previamente aprobado el plan**, `/dashboard/configuracion` pasó a ser un centro de configuración en una sola página con tarjetas:
+
+- **Datos del negocio:** nombre editable (solo OWNER) y slug de solo lectura. Nuevo servicio `updateTenantName` y ruta `PATCH /api/admin/tenants/general`; el slug no se modifica al renombrar.
+- **WhatsApp:** número Click to Chat + enlace a la conexión real WasenderAPI/QR/webhooks (`/dashboard/configuracion/whatsapp`).
+- **Categorías del catálogo:** listado y formulario de creación (mismo endpoint `/api/admin/categories`). Se **movió** la gestión desde Productos: se eliminó el botón «Categorías» y su diálogo de `products-view.tsx`; el filtro por categoría sigue en Productos.
+- **Tienda:** tarjeta «Próximamente» (dominios, políticas y métodos de entrega), sin implementar.
+- Componente `src/components/settings/configuration-cards.tsx`. Roles respetados: solo OWNER edita datos del negocio y número de WhatsApp.
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; HTML de Configuración contiene todas las secciones; el botón de Categorías ya no aparece en Productos; `PATCH /api/admin/tenants/general` con nombre inválido responde 400.
+- **Ajuste posterior aprobado:** las tarjetas ahora son botones que abren una **ventana emergente (modal)** con todo el contenido de cada sección; se cierra con clic fuera, botón × o Esc. El **Canal de WhatsApp** ya no tiene campo editable separado: muestra el `verifiedPhone` (o `expectedPhone` como respaldo) de la conexión principal obtenida con `listConnections`, su estado y proveedor. Si no hay conexión, muestra «Sin conectar». El formulario anterior `WhatsappSettings` dejó de usarse aquí (se conserva el componente y su ruta por si se requiere en el futuro).
+- **Unificación final (aprobada):** dentro del modal del Canal de WhatsApp se renderiza **todo** `ConnectionsManager` (proveedores, «Conectar con QR», estado, QR, renovación, verificación, eliminación y URL del webhook), con el modal más ancho (`max-w-3xl`). Se **eliminó la vista** `/dashboard/configuracion/whatsapp` y todo enlace hacia ella. Verificado: la ruta antigua responde **404**, la tarjeta sigue presente y no queda link a la ruta eliminada. El componente y las APIs de conexión siguen intactas; solo cambió dónde se muestran.
+- **Una sola cuenta por negocio (aprobado):** `createConnectionFromQr` cuenta las conexiones del tenant **antes** de crear la sesión en Wasender (para no dejar sesiones huérfanas) y vuelve a verificar dentro de la transacción; responde 409 si ya existe una. En la UI se oculta «Conectar con QR» cuando hay una conexión y se muestra el aviso «Este negocio ya tiene una cuenta de WhatsApp vinculada. Solo se permite una; elimínela para poder conectar otra.». Las cuentas siguen siendo independientes entre tenants. **Validado:** con una conexión ficticia insertada, `POST /api/admin/whatsapp/sessions` devolvió 409 con ese mensaje y no se creó ninguna sesión remota; la fila de prueba se eliminó.
+
 ### J. Duplicado de mensajes salientes (corregido)
 
 El usuario reportó que al enviar un mensaje aparecía dos veces. Confirmado en BD: el mensaje se creaba al encolarlo (`externalId=null`, `ACCEPTED`) y otra vez cuando llegaba el webhook `messages.upsert` con `fromMe=true` (`externalId=<id de WhatsApp>`, `SENT`).

@@ -76,12 +76,27 @@ function priceLabel(variants: StoreVariantDTO[]): { priceFrom: string | null; pr
   };
 }
 
+/** El número público es el de la conexión activa; el campo del tenant es solo respaldo. */
+export async function resolveStoreWhatsappPhone(tenantId: string, fallback: string | null): Promise<string | null> {
+  const connection = await getPrisma().whatsAppConnection.findFirst({
+    where: { tenantId, status: "CONNECTED" },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
+    select: { verifiedPhone: true, expectedPhone: true },
+  });
+  return connection?.verifiedPhone ?? connection?.expectedPhone ?? fallback;
+}
+
 /** Identidad de la tienda por slug. Nunca depende de la sesión administrativa. */
 export async function getStoreBySlug(slug: string): Promise<StoreTenantDTO | null> {
-  return getPrisma().tenant.findUnique({
+  const tenant = await getPrisma().tenant.findUnique({
     where: { slug },
     select: { id: true, name: true, slug: true, whatsappPhone: true },
   });
+  if (!tenant) return null;
+  return {
+    ...tenant,
+    whatsappPhone: await resolveStoreWhatsappPhone(tenant.id, tenant.whatsappPhone),
+  };
 }
 
 export async function listStoreCategories(tenantId: string): Promise<StoreCategoryDTO[]> {
@@ -174,9 +189,18 @@ export async function listStoreProducts(
   return products.map(toStoreProduct);
 }
 
-export async function getStoreProduct(tenantId: string, slug: string): Promise<StoreProductDTO | null> {
+export async function getStoreProduct(
+  tenantId: string,
+  slug: string,
+  options?: { includeInvisible?: boolean },
+): Promise<StoreProductDTO | null> {
   const product = await getPrisma().product.findFirst({
-    where: { tenantId, slug, status: "ACTIVE", storeVisible: true },
+    where: {
+      tenantId,
+      slug,
+      status: "ACTIVE",
+      ...(options?.includeInvisible ? {} : { storeVisible: true }),
+    },
     include: publicProductInclude,
   });
   return product ? toStoreProduct(product) : null;

@@ -210,14 +210,19 @@ export function ConnectionsManager({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Integración de WhatsApp</h1>
-          <p className="mt-1 text-xs text-muted">Cada negocio usa su propia sesión y credenciales cifradas.</p>
+          <p className="mt-1 text-xs text-muted">Cada negocio usa una sola sesión y credenciales cifradas.</p>
         </div>
-        {canEdit ? (
+        {canEdit && connections.length === 0 ? (
           <button type="button" onClick={() => setShowQrForm(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">
             <Icon name="plus" size={17} /> Conectar con QR
           </button>
         ) : null}
       </div>
+      {connections.length > 0 ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          Este negocio ya tiene una cuenta de WhatsApp vinculada. Solo se permite una; elimínela para poder conectar otra.
+        </p>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {providers.map((provider) => (
