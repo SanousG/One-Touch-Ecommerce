@@ -17,7 +17,15 @@ export function getPrisma(): PrismaClient {
   }
 
   const client = new PrismaClient({
-    adapter: new PrismaPg({ connectionString }),
+    // Las funciones serverless crean varias instancias del proceso. El valor
+    // predeterminado de `pg` (10 conexiones por instancia) agota rápidamente
+    // el límite del pooler de Supabase, por lo que cada instancia usa una sola.
+    adapter: new PrismaPg({
+      connectionString,
+      max: 1,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+    }),
   });
 
   globalForPrisma.prisma = client;
