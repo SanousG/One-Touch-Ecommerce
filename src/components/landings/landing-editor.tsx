@@ -26,7 +26,11 @@ function adminToStoreProduct(product: ProductDTO): StoreProductDTO {
     description: product.description,
     categoryName: product.categoryName,
     coverUrl: product.coverUrl,
-    images: product.images.map((image) => ({ id: image.id, url: image.url })),
+    images: product.images.map((image) => ({
+      id: image.id,
+      url: `/api/admin/products/images/${image.id}/file`,
+      mimeType: image.mimeType,
+    })),
     priceFrom: product.priceFrom,
     priceLabel: label,
     variantCount: product.variantCount,
@@ -177,19 +181,36 @@ export function LandingEditor({ landing, product, tenant, canPublish }: Props) {
                 <div className="grid grid-cols-3 gap-2">
                   {product.images.length === 0 ? (
                     <p className="col-span-3 text-xs text-muted">Este producto no tiene imágenes en el catálogo.</p>
-                  ) : product.images.map((image) => (
-                    <button
-                      key={image.id}
-                      type="button"
-                      onClick={() => update("heroImageId", image.id)}
-                      title="Usar como fotografía principal"
-                      className={`aspect-square overflow-hidden rounded-lg border-2 ${form.heroImageId === image.id ? "border-primary" : "border-transparent"}`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={image.url} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
+                  ) : product.images.map((image) => {
+                    if (image.mimeType.startsWith("video/")) {
+                      return (
+                        <div
+                          key={image.id}
+                          title="Los videos se muestran en la galería, no como portada"
+                          className="relative aspect-square overflow-hidden rounded-lg border-2 border-transparent bg-slate-900"
+                        >
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-xl text-white ring-1 ring-white/30">▶</span>
+                          </span>
+                          <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white">VIDEO</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        key={image.id}
+                        type="button"
+                        onClick={() => update("heroImageId", image.id)}
+                        title="Usar como fotografía principal"
+                        className={`aspect-square overflow-hidden rounded-lg border-2 ${form.heroImageId === image.id ? "border-primary" : "border-transparent"}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={image.url} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    );
+                  })}
                 </div>
+                <p className="text-[11px] text-muted">Los videos se muestran en la galería de la landing; la portada debe ser una foto.</p>
               </div>
 
               <div className="flex flex-col gap-2">

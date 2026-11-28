@@ -174,7 +174,7 @@ function parseDesign(value: Prisma.JsonValue): LandingDesignDTO {
   text("eyebrow", 80); text("badgeText", 60); text("buttonText", 80);
   text("priceLabel", 40); text("priceText", 40); text("oldPriceText", 40);
   text("discountText", 20); text("footerText", 300); text("effectEmoji", 8);
-  (["showBadge", "showReference", "showPrice", "showWhatsapp", "showBenefits", "showFaqs", "showFooter", "showSummary", "showVariants"] as const).forEach(bool);
+  (["showBadge", "showReference", "showPrice", "showWhatsapp", "showBenefits", "showFaqs", "showFooter", "showSummary", "showVariants", "showGallery"] as const).forEach(bool);
   return design;
 }
 
@@ -228,7 +228,7 @@ function validateDesign(value: unknown, current: LandingDesignDTO): LandingDesig
       throw new LandingValidationError(`Valor no válido en ${key} (${min}-${max})`);
     }
   }
-  for (const key of ["showBadge", "showReference", "showPrice", "showWhatsapp", "showBenefits", "showFaqs", "showFooter", "showSummary", "showVariants"]) {
+  for (const key of ["showBadge", "showReference", "showPrice", "showWhatsapp", "showBenefits", "showFaqs", "showFooter", "showSummary", "showVariants", "showGallery"]) {
     if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
       throw new LandingValidationError(`Opción no válida en ${key}`);
     }

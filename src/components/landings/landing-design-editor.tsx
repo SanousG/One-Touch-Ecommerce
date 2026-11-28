@@ -166,6 +166,7 @@ export function LandingDesignEditor({ design, onChange }: Props) {
         <Toggle label="Botón de WhatsApp" checked={design.showWhatsapp} onChange={(value) => set("showWhatsapp", value)} />
         <Toggle label="Descripción" checked={design.showSummary} onChange={(value) => set("showSummary", value)} />
         <Toggle label="Variantes" checked={design.showVariants} onChange={(value) => set("showVariants", value)} />
+        <Toggle label="Galería de fotos y video" checked={design.showGallery} onChange={(value) => set("showGallery", value)} />
         <Toggle label="Beneficios" checked={design.showBenefits} onChange={(value) => set("showBenefits", value)} />
         <Toggle label="Preguntas frecuentes" checked={design.showFaqs} onChange={(value) => set("showFaqs", value)} />
         <Toggle label="Sección final" checked={design.showFooter} onChange={(value) => set("showFooter", value)} />

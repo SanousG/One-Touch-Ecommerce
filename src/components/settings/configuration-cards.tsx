@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { inputClass } from "@/components/catalog/products-view";
 import { ConnectionsManager } from "@/components/whatsapp/connections-manager";
 import type { CategoryDTO } from "@/lib/catalog/service";
+import type { TemplateTypeDTO } from "@/lib/flows/types";
 import type { ConnectionDTO } from "@/lib/whatsapp/service";
 
 type Settings = {
@@ -28,6 +29,7 @@ type ProviderOption = { kind: string; label: string; available: boolean };
 type Props = {
   settings: Settings;
   categories: CategoryDTO[];
+  templateTypes: TemplateTypeDTO[];
   connection: ConnectionInfo;
   connections: ConnectionDTO[];
   providers: ProviderOption[];
@@ -35,14 +37,15 @@ type Props = {
   webhookBaseConfigured: boolean;
 };
 
-type SectionId = "business" | "whatsapp" | "categories" | "store";
+type SectionId = "business" | "whatsapp" | "categories" | "templateTypes" | "store";
 
-type IconName = "settings" | "chat" | "folder" | "storefront";
+type IconName = "settings" | "chat" | "folder" | "tag" | "storefront";
 
 const SECTIONS: Array<{ id: SectionId; icon: IconName; title: string; description: string; summary: string }> = [
   { id: "business", icon: "settings", title: "Datos del negocio", description: "Nombre y dirección de la tienda.", summary: "" },
   { id: "whatsapp", icon: "chat", title: "Canal de WhatsApp", description: "Número vinculado y conexión WasenderAPI.", summary: "" },
   { id: "categories", icon: "folder", title: "Categorías del catálogo", description: "Agrupa los productos de la tienda.", summary: "" },
+  { id: "templateTypes", icon: "tag", title: "Tipos de plantilla", description: "Crea tipos propios para organizar tus mensajes.", summary: "" },
   { id: "store", icon: "storefront", title: "Tienda", description: "Dominios, políticas y entregas.", summary: "Próximamente" },
 ];
 
@@ -203,7 +206,122 @@ function CategoriesSection({ categories }: { categories: CategoryDTO[] }) {
   );
 }
 
-export function ConfigurationCards({ settings, categories, connection, connections, providers, canEdit, webhookBaseConfigured }: Props) {
+function TemplateTypesSection({ templateTypes }: { templateTypes: TemplateTypeDTO[] }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState<TemplateTypeDTO | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setEditing(null);
+    setName("");
+    setDescription("");
+    setError(null);
+  }
+
+  function startEdit(type: TemplateTypeDTO) {
+    setEditing(type);
+    setName(type.name);
+    setDescription(type.description ?? "");
+    setError(null);
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        editing ? `/api/admin/template-types/${editing.id}` : "/api/admin/template-types",
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, description }),
+        },
+      );
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) { setError(data.error ?? "No se pudo guardar el tipo"); return; }
+      reset();
+      router.refresh();
+    } catch {
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(type: TemplateTypeDTO) {
+    if (!window.confirm(`¿Eliminar el tipo "${type.name}"?`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/template-types/${type.id}`, { method: "DELETE" });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) { setError(data.error ?? "No se pudo eliminar el tipo"); return; }
+      if (editing?.id === type.id) reset();
+      router.refresh();
+    } catch {
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <ul className="space-y-2">
+        {templateTypes.length === 0 ? (
+          <li className="text-xs text-muted">Aún no hay tipos.</li>
+        ) : templateTypes.map((type) => (
+          <li key={type.id} className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">{type.name}</span>
+                {type.isSystem ? (
+                  <span className="rounded-full bg-surface-soft px-2 py-0.5 text-[10px] text-muted">Predeterminado</span>
+                ) : null}
+              </div>
+              {type.description ? <p className="mt-0.5 text-[11px] text-muted">{type.description}</p> : null}
+            </div>
+            {type.isSystem ? null : (
+              <div className="flex shrink-0 gap-1">
+                <button type="button" onClick={() => startEdit(type)} className="rounded-lg p-1.5 text-muted hover:bg-surface-soft hover:text-primary" title="Editar tipo">
+                  <Icon name="edit" size={15} />
+                </button>
+                <button type="button" onClick={() => remove(type)} disabled={saving} className="rounded-lg p-1.5 text-muted hover:bg-surface-soft hover:text-red-700 disabled:opacity-50" title="Eliminar tipo">
+                  <Icon name="trash" size={15} />
+                </button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={submit} className="space-y-3 border-t border-border pt-4">
+        <p className="text-xs font-semibold">{editing ? "Editar tipo" : "Nuevo tipo"}</p>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted">Nombre del tipo</span>
+          <input required minLength={2} maxLength={40} value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Recordatorio" className={inputClass} />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted">Descripción (opcional)</span>
+          <input maxLength={160} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Ej. Mensajes para recordar una cita" className={inputClass} />
+        </label>
+        <p className="text-[11px] text-muted">Los tipos nuevos aparecen en Plantillas y en los bloques Mensaje de los flujos. Checkout está reservado.</p>
+        {error ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+        <div className="flex justify-end gap-2">
+          {editing ? <button type="button" onClick={reset} className="rounded-lg border border-border px-4 py-2 text-sm">Cancelar</button> : null}
+          <button type="submit" disabled={saving} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            {saving ? "Guardando…" : editing ? "Guardar tipo" : "Añadir tipo"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function ConfigurationCards({ settings, categories, templateTypes, connection, connections, providers, canEdit, webhookBaseConfigured }: Props) {
   const [active, setActive] = useState<SectionId | null>(null);
 
   useEffect(() => {
@@ -219,6 +337,7 @@ export function ConfigurationCards({ settings, categories, connection, connectio
     business: settings.name,
     whatsapp: connection?.verifiedPhone ?? connection?.expectedPhone ?? "Sin conectar",
     categories: `${categories.length} ${categories.length === 1 ? "categoría" : "categorías"}`,
+    templateTypes: `${templateTypes.length} ${templateTypes.length === 1 ? "tipo" : "tipos"}`,
     store: "Próximamente",
   };
 
@@ -250,7 +369,7 @@ export function ConfigurationCards({ settings, categories, connection, connectio
       {active && activeSection ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setActive(null)} role="presentation">
           <div
-            className={`max-h-[90vh] w-full overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-xl ${active === "whatsapp" ? "max-w-3xl" : "max-w-lg"}`}
+            className={`max-h-[90vh] w-full overflow-y-auto rounded-xl border border-border bg-surface p-6 shadow-xl ${active === "whatsapp" ? "max-w-3xl" : active === "templateTypes" ? "max-w-2xl" : "max-w-lg"}`}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-5 flex items-start justify-between gap-3">
@@ -274,6 +393,7 @@ export function ConfigurationCards({ settings, categories, connection, connectio
               />
             ) : null}
             {active === "categories" ? <CategoriesSection categories={categories} /> : null}
+            {active === "templateTypes" ? <TemplateTypesSection templateTypes={templateTypes} /> : null}
             {active === "store" ? (
               <p className="rounded-lg border border-dashed border-border bg-background px-3 py-6 text-center text-xs text-muted">
                 Dominios personalizados, políticas de tienda y métodos de entrega. Próximamente.

@@ -48,10 +48,10 @@ export function ImageManager({ product, onUpdated }: Props) {
     <section className="rounded-xl border border-border bg-surface p-5 shadow-sm">
       <div className="mb-1 flex items-center gap-2">
         <Icon name="image" size={20} className="text-primary" />
-        <h2 className="text-sm font-semibold">Fotografías del catálogo</h2>
+        <h2 className="text-sm font-semibold">Fotos y videos del catálogo</h2>
       </div>
       <p className="mb-4 text-xs text-muted">
-        La portada se usa en la tienda futura. Formatos JPEG, PNG o WebP · máximo 5 MB.
+        La portada se elige entre las fotos. Fotos JPG/PNG/WebP hasta 5 MB; videos MP4/WebM/MOV hasta 50 MB.
       </p>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -90,6 +90,22 @@ export function ImageManager({ product, onUpdated }: Props) {
             }}
           />
         </label>
+        <label className="flex aspect-square cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-border bg-background text-center hover:bg-surface-soft">
+          <span className="mb-2 text-2xl text-primary">▶</span>
+          <span className="text-sm font-semibold">Añadir video</span>
+          <span className="mt-1 text-[11px] text-muted">MP4 / WebM / MOV · máx. 50 MB</span>
+          <input
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime"
+            className="hidden"
+            disabled={busy}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) upload(file);
+              event.target.value = "";
+            }}
+          />
+        </label>
       </div>
       {error ? <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
     </section>
@@ -111,11 +127,22 @@ function ImageCard({
   onMoveRight: () => void;
   onRemove: () => void;
 }) {
+  const isVideo = image.mimeType.startsWith("video/");
+  const source = `/api/admin/products/images/${image.id}/file`;
   return (
     <div className="group overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-      <div className="relative aspect-square bg-surface-soft">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={image.url} alt={image.fileName} className="h-full w-full object-cover" />
+      <div className={`relative aspect-square ${isVideo ? "bg-slate-900" : "bg-surface-soft"}`}>
+        {isVideo ? (
+          <>
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-xl text-white ring-1 ring-white/30">▶</span>
+            </span>
+            <span className="absolute left-2 top-2 rounded-md bg-black/60 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">VIDEO</span>
+          </>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={source} alt={image.fileName} className="h-full w-full object-cover" />
+        )}
         {image.isCover ? (
           <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[11px] font-semibold text-white">
             <Icon name="star" size={13} /> Portada
@@ -127,7 +154,7 @@ function ImageCard({
         <span className="shrink-0 font-mono text-[10px] text-slate-400">{Math.round(image.sizeBytes / 1024)} KB</span>
       </div>
       <div className="flex items-center justify-center gap-1 border-t border-border p-1.5">
-        {!image.isCover ? (
+        {!image.isCover && !isVideo ? (
           <button type="button" disabled={busy} onClick={onCover} title="Hacer portada" className="rounded p-1.5 text-muted hover:bg-surface hover:text-primary">
             <Icon name="star" size={15} />
           </button>

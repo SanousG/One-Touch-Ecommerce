@@ -34,11 +34,6 @@ enum FlowBlockType {
   END
 }
 
-enum TemplateType {
-  MESSAGE
-  CHECKOUT
-}
-
 enum FlowEndMode {
   FINISH
   HANDOFF
@@ -270,6 +265,8 @@ model Tenant {
   flows       SalesFlow[]
   flowVersions SalesFlowVersion[]
   templates   MessageTemplate[]
+  templateTypes TemplateType[]
+  templateMedia TemplateMedia[]
   orders      Order[]
   orderItems  OrderItem[]
   reservations StockReservation[]
@@ -441,20 +438,57 @@ model LandingVersion {
   @@map("landing_versions")
 }
 
+/// Tipo de plantilla configurable por negocio. Los tipos predeterminados se
+/// crean por tenant; los personalizados los gestiona el usuario en Configuración.
+model TemplateType {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  slug        String
+  description String?
+  isSystem    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("template_types")
+}
+
+/// Archivo propio de una plantilla (foto o video), almacenado en Drive.
+model TemplateMedia {
+  id         String   @id @default(cuid())
+  tenantId   String
+  storageKey String   @unique
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  createdAt  DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templates  MessageTemplate[]
+
+  @@index([tenantId])
+  @@map("template_media")
+}
+
 /// Plantilla reutilizable de mensaje. El contenido es texto plano; las variables
 /// dinámicas se resolverán en el futuro motor de ejecución.
 model MessageTemplate {
   id        String       @id @default(cuid())
   tenantId  String
   name      String
-  type      TemplateType
+  /// Slug del tipo en template_types. Se guarda como texto para admitir tipos creados por el negocio.
+  type      String
   content   String
   imageId   String?
+  mediaId   String?
   isActive  Boolean      @default(true)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   image     ProductImage? @relation(fields: [imageId], references: [id], onDelete: Restrict)
+  media     TemplateMedia? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, type])
   @@map("message_templates")

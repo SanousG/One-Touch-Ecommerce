@@ -20,7 +20,7 @@ export type StoreVariantDTO = {
   available: number;
 };
 
-export type StoreImageDTO = { id: string; url: string };
+export type StoreImageDTO = { id: string; url: string; mimeType: string };
 
 export type StoreProductDTO = {
   id: string;
@@ -117,7 +117,7 @@ function toStoreProduct(product: {
   slug: string;
   description: string | null;
   category: { name: string } | null;
-  images: { id: string }[];
+  images: { id: string; mimeType: string }[];
   variants: {
     id: string;
     sku: string;
@@ -128,7 +128,7 @@ function toStoreProduct(product: {
     stockReserved: number;
   }[];
 }): StoreProductDTO {
-  const images = product.images.map((image) => ({ id: image.id, url: imageUrl(image.id) }));
+  const images = product.images.map((image) => ({ id: image.id, url: imageUrl(image.id), mimeType: image.mimeType }));
   const variants: StoreVariantDTO[] = product.variants.map((variant) => ({
     id: variant.id,
     sku: variant.sku,
@@ -153,7 +153,7 @@ function toStoreProduct(product: {
 
 const publicProductInclude = {
   category: { select: { name: true } },
-  images: { orderBy: { position: "asc" as const }, select: { id: true } },
+  images: { orderBy: { position: "asc" as const }, select: { id: true, mimeType: true } },
   variants: {
     where: { isActive: true },
     orderBy: { isDefault: "desc" as const },

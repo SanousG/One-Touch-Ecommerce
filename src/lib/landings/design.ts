@@ -40,6 +40,7 @@ export type LandingDesignDTO = {
   showFooter: boolean;
   showSummary: boolean;
   showVariants: boolean;
+  showGallery: boolean;
   effect: (typeof LANDING_EFFECTS)[number];
   effectIntensity: number;
   effectSpeed: number;
@@ -79,6 +80,7 @@ export const DEFAULT_LANDING_DESIGN: LandingDesignDTO = {
   showFooter: true,
   showSummary: true,
   showVariants: true,
+  showGallery: true,
   effect: "none",
   effectIntensity: 2,
   effectSpeed: 2,

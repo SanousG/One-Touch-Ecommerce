@@ -3,6 +3,7 @@ import {
   CHECKOUT_FIELDS,
   END_MODES,
   defaultConfig,
+  isMessageTemplateType,
   type FlowBlockType,
   type FlowDiagramDTO,
   type FlowEdgeDTO,
@@ -240,7 +241,7 @@ export function validateForPublish(args: {
       }
       for (const id of node.config.templateIds) {
         const template = templates[id];
-        if (!template || template.type !== "MESSAGE") {
+        if (!template || !isMessageTemplateType(template.type)) {
           issues.push({ nodeId: node.id, message: `Plantilla de mensaje no válida: ${id}` });
         }
       }

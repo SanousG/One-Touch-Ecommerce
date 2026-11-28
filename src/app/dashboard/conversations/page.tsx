@@ -1,5 +1,6 @@
 import { InboxView } from "@/components/whatsapp/inbox-view";
 import { getPrisma } from "@/lib/db/prisma";
+import { listTemplates } from "@/lib/flows/service";
 import { getConversation, listConversations, requireInboxActor } from "@/lib/whatsapp/conversations";
 import { getInboxConnectionStatus } from "@/lib/whatsapp/service";
 
@@ -10,9 +11,10 @@ type Search = { conversation?: string; status?: string; q?: string };
 export default async function ConversationsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const actor = await requireInboxActor();
   const filters = await searchParams;
-  const [conversations, connection, memberships] = await Promise.all([
+  const [conversations, connection, templates, memberships] = await Promise.all([
     listConversations(actor, filters.status, filters.q),
     getInboxConnectionStatus(actor),
+    listTemplates(actor),
     getPrisma().tenantMembership.findMany({
       where: { tenantId: actor.tenantId },
       include: { user: { select: { id: true, name: true } } },
@@ -29,6 +31,7 @@ export default async function ConversationsPage({ searchParams }: { searchParams
       conversations={conversations}
       detail={detail}
       connection={connection}
+      templates={templates}
       users={memberships.map((membership) => membership.user)}
     />
   );
