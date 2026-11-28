@@ -7,6 +7,8 @@ import { getApiCatalogContext, requireCatalogContext } from "../catalog/service"
 import type { CatalogActor } from "../catalog/service";
 import { getConnectionCredentials, getConnectionProvider } from "./connection-access";
 import { saveWhatsappImage } from "./media-storage";
+import { convertAudioToOgg } from "./audio-conversion";
+import { readStoredImage } from "../storage/product-images";
 import { sanitizePayload } from "./providers/wasender/webhook";
 import type { NormalizedMessage } from "./types";
 
@@ -424,6 +426,271 @@ export async function sendImageMessage(
   };
 }
 
+/** Sube un video a Wasender y la encola para envío desde la bandeja. */
+export async function sendVideoMessage(
+  actor: CatalogActor,
+  conversationId: string,
+  input: { bytes: Buffer; mimeType: string; fileName: string; caption?: string },
+): Promise<MessageDTO> {
+  assertInboxManager(actor.role);
+  const conversation = await ownedConversation(actor, conversationId);
+  const connection = await getPrisma().whatsAppConnection.findFirst({
+    where: { id: conversation.connectionId, tenantId: actor.tenantId },
+  });
+  if (!connection) throw new InboxError("Conexión no encontrada", 404);
+  if (connection.status !== "CONNECTED") throw new InboxError("La conexión de WhatsApp no está conectada", 409);
+  if (!conversation.contact.phone && !conversation.contact.externalId.includes("@")) {
+    throw new InboxError("El contacto no tiene un destinatario válido", 409);
+  }
+  const caption = (input.caption ?? "").trim().slice(0, 1000);
+  if (!/^video\/(mp4|3gpp)$/.test(input.mimeType)) {
+    throw new InboxError("Wasender solo admite video MP4 o 3GPP", 400);
+  }
+  if (input.bytes.length === 0 || input.bytes.length > 50 * 1024 * 1024) {
+    throw new InboxError("El video debe pesar entre 1 byte y 50 MB", 400);
+  }
+
+  const provider = getConnectionProvider(connection);
+  if (!provider.capabilities.video || !provider.uploadMedia) {
+    throw new InboxError("Este proveedor no permite enviar videos", 400);
+  }
+  const remoteUrl = await provider.uploadMedia(getConnectionCredentials(connection), {
+    bytes: input.bytes,
+    mimeType: input.mimeType,
+    fileName: input.fileName,
+  });
+
+  const storedPath = await saveWhatsappImage(actor.tenantId, `out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, input.bytes, input.mimeType);
+  const preview = caption || "[Video]";
+
+  const created = await getPrisma().$transaction(async (tx) => {
+    const message = await tx.conversationMessage.create({
+      data: {
+        tenantId: actor.tenantId,
+        connectionId: connection.id,
+        conversationId,
+        direction: "OUTBOUND",
+        kind: "VIDEO",
+        authorName: actor.userId,
+        content: caption || null,
+        media: {
+          type: "video",
+          status: "ready",
+          path: storedPath,
+          mimeType: input.mimeType,
+          fileName: input.fileName,
+          remoteUrl,
+        } as Prisma.InputJsonValue,
+        status: "PENDING",
+        createdAt: new Date(),
+      },
+    });
+    await tx.outboundMessage.create({
+      data: {
+        tenantId: actor.tenantId,
+        connectionId: connection.id,
+        conversationId,
+        conversationMessageId: message.id,
+        to: conversation.contact.phone ?? conversation.contact.externalId,
+        text: caption,
+        kind: "VIDEO",
+        mediaUrl: remoteUrl,
+        status: "PENDING",
+      },
+    });
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessage: preview.slice(0, 200), lastMessageAt: new Date() },
+    });
+    await tx.conversationEvent.create({
+      data: {
+        tenantId: actor.tenantId,
+        conversationId,
+        type: "MESSAGE_OUT",
+        description: "Video encolado para envío",
+        actorId: actor.userId,
+      },
+    });
+    return message;
+  });
+
+  return {
+    id: created.id,
+    direction: created.direction,
+    kind: created.kind,
+    author: created.authorName,
+    content: created.content,
+    media: created.media as MessageDTO["media"],
+    status: created.status,
+    createdAt: created.createdAt.toISOString(),
+  };
+}
+
+/** Sube audio a Wasender y la encola como nota de voz desde la bandeja. */
+export async function sendAudioMessage(
+  actor: CatalogActor,
+  conversationId: string,
+  input: { bytes: Buffer; mimeType: string; fileName: string },
+): Promise<MessageDTO> {
+  assertInboxManager(actor.role);
+  const conversation = await ownedConversation(actor, conversationId);
+  const connection = await getPrisma().whatsAppConnection.findFirst({
+    where: { id: conversation.connectionId, tenantId: actor.tenantId },
+  });
+  if (!connection) throw new InboxError("Conexión no encontrada", 404);
+  if (connection.status !== "CONNECTED") throw new InboxError("La conexión de WhatsApp no está conectada", 409);
+  if (!conversation.contact.phone && !conversation.contact.externalId.includes("@")) {
+    throw new InboxError("El contacto no tiene un destinatario válido", 409);
+  }
+  const mimeType = input.mimeType.split(";")[0].trim().toLowerCase();
+  if (!/^audio\/(mpeg|mp3|aac|ogg|amr|webm|mp4|m4a|x-m4a|wav)$/.test(mimeType)) {
+    throw new InboxError(`Formato de audio no soportado (${mimeType})`, 400);
+  }
+  if (input.bytes.length === 0 || input.bytes.length > 16 * 1024 * 1024) {
+    throw new InboxError("El audio debe pesar entre 1 byte y 16 MB", 400);
+  }
+
+  const provider = getConnectionProvider(connection);
+  if (!provider.capabilities.audio || !provider.uploadMedia) {
+    throw new InboxError("Este proveedor no permite enviar audio", 400);
+  }
+
+  let uploadBytes = input.bytes;
+  let uploadMime = mimeType;
+  let uploadName = input.fileName;
+  const needsConversion = ["audio/webm", "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/wav"].includes(mimeType);
+  if (needsConversion) {
+    uploadBytes = await convertAudioToOgg(input.bytes).catch(() => {
+      throw new InboxError("No se pudo convertir el audio grabado", 400);
+    });
+    uploadMime = "audio/ogg";
+    uploadName = uploadName.replace(/\.(webm|mp4|m4a|wav)$/i, ".ogg");
+  }
+
+  const remoteUrl = await provider.uploadMedia(getConnectionCredentials(connection), {
+    bytes: uploadBytes,
+    mimeType: uploadMime,
+    fileName: uploadName,
+  });
+  const storedPath = await saveWhatsappImage(
+    actor.tenantId,
+    `out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    uploadBytes,
+    uploadMime,
+  );
+
+  const created = await getPrisma().$transaction(async (tx) => {
+    const message = await tx.conversationMessage.create({
+      data: {
+        tenantId: actor.tenantId,
+        connectionId: connection.id,
+        conversationId,
+        direction: "OUTBOUND",
+        kind: "AUDIO",
+        authorName: actor.userId,
+        media: {
+          type: "audio",
+          status: "ready",
+          path: storedPath,
+          mimeType: uploadMime,
+          fileName: uploadName,
+          remoteUrl,
+        } as Prisma.InputJsonValue,
+        status: "PENDING",
+        createdAt: new Date(),
+      },
+    });
+    await tx.outboundMessage.create({
+      data: {
+        tenantId: actor.tenantId,
+        connectionId: connection.id,
+        conversationId,
+        conversationMessageId: message.id,
+        to: conversation.contact.phone ?? conversation.contact.externalId,
+        text: "",
+        kind: "AUDIO",
+        mediaUrl: remoteUrl,
+        status: "PENDING",
+      },
+    });
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessage: "[Audio]", lastMessageAt: new Date() },
+    });
+    await tx.conversationEvent.create({
+      data: {
+        tenantId: actor.tenantId,
+        conversationId,
+        type: "MESSAGE_OUT",
+        description: "Audio encolado para envío",
+        actorId: actor.userId,
+      },
+    });
+    return message;
+  });
+
+  return {
+    id: created.id,
+    direction: created.direction,
+    kind: created.kind,
+    author: created.authorName,
+    content: created.content,
+    media: created.media as MessageDTO["media"],
+    status: created.status,
+    createdAt: created.createdAt.toISOString(),
+  };
+}
+
+/** Envía una plantilla al chat: el texto viaja como pie del adjunto (o como mensaje suelto). */
+export async function sendTemplateMessage(
+  actor: CatalogActor,
+  conversationId: string,
+  templateId: string,
+): Promise<{ messages: MessageDTO[] }> {
+  assertInboxManager(actor.role);
+  const template = await getPrisma().messageTemplate.findFirst({
+    where: { id: templateId, tenantId: actor.tenantId },
+    include: { media: true, image: true },
+  });
+  if (!template || !template.isActive) throw new InboxError("Plantilla no encontrada o inactiva", 404);
+
+  const content = template.content.trim();
+  if (!content) throw new InboxError("La plantilla no tiene contenido", 400);
+
+  let bytes: Buffer | null = null;
+  let mimeType = "";
+  let fileName = "";
+  if (template.media) {
+    bytes = await readStoredImage(template.media.storageKey);
+    mimeType = template.media.mimeType;
+    fileName = template.media.fileName;
+  } else if (template.image) {
+    bytes = await readStoredImage(template.image.storageKey);
+    mimeType = template.image.mimeType;
+    fileName = template.image.fileName;
+  }
+
+  // Validar antes de encolar el texto para no enviar un mensaje a medias.
+  if (bytes) {
+    const isVideo = mimeType.startsWith("video/");
+    if (isVideo) {
+      if (!/^video\/(mp4|3gpp)$/.test(mimeType)) throw new InboxError("Wasender solo admite video MP4 o 3GPP", 400);
+      if (bytes.length > 50 * 1024 * 1024) throw new InboxError("El video supera los 50 MB", 400);
+    } else {
+      if (!/^image\/(jpeg|png|webp|gif)$/.test(mimeType)) throw new InboxError("Formato de imagen no soportado", 400);
+      if (bytes.length > 16 * 1024 * 1024) throw new InboxError("La imagen supera los 16 MB", 400);
+    }
+  }
+
+  if (!bytes) {
+    return { messages: [await sendMessage(actor, conversationId, content)] };
+  }
+  const message = mimeType.startsWith("video/")
+    ? await sendVideoMessage(actor, conversationId, { bytes, mimeType, fileName, caption: content })
+    : await sendImageMessage(actor, conversationId, { bytes, mimeType, fileName, caption: content });
+  return { messages: [message] };
+}
+
 function buildDedupeKey(connectionId: string, eventName: string, payload: unknown, normalized: NormalizedEventLike[]) {
   const fingerprint = createHash("sha256").update(JSON.stringify(payload ?? {})).digest("hex").slice(0, 32);
   const ids = normalized
@@ -436,10 +703,17 @@ function buildDedupeKey(connectionId: string, eventName: string, payload: unknow
 
 type NormalizedEventLike = { type: string };
 
-async function applyNormalizedEvents(connection: WhatsAppConnection, normalized: NormalizedEventLike[]): Promise<boolean> {
+type InboundResult = { conversationId: string; body: string; created: boolean };
+
+async function applyNormalizedEvents(connection: WhatsAppConnection, normalized: NormalizedEventLike[]): Promise<{ handled: boolean; inbound: InboundResult | null }> {
   let handled = false;
+  let inbound: InboundResult | null = null;
   for (const item of normalized) {
-    if (item.type === "message") { await handleIncomingMessage(connection, item as NormalizedMessage); handled = true; }
+    if (item.type === "message") {
+      const result = await handleIncomingMessage(connection, item as NormalizedMessage);
+      if (result) inbound = result;
+      handled = true;
+    }
     if (item.type === "status") {
       const status = item as unknown as { externalId: string; status: string; providerStatus: string };
       await handleStatusUpdate(connection, status);
@@ -454,7 +728,7 @@ async function applyNormalizedEvents(connection: WhatsAppConnection, normalized:
       handled = true;
     }
   }
-  return handled;
+  return { handled, inbound };
 }
 
 /** Persiste el evento antes de confirmar y lo procesa de forma idempotente. */
@@ -485,11 +759,25 @@ export async function ingestWebhook(connection: WhatsAppConnection, payload: unk
   }
 
   try {
-    const handled = await applyNormalizedEvents(connection, normalized);
+    const { handled, inbound } = await applyNormalizedEvents(connection, normalized);
     await getPrisma().webhookEvent.update({
       where: { dedupeKey },
       data: { status: handled ? "PROCESSED" : "IGNORED", processedAt: new Date() },
     });
+    const fromMe = normalized.some((item) => item.type === "message" && (item as NormalizedMessage).fromMe);
+    if (inbound?.created && !fromMe) {
+      try {
+        const { runFlowEngine } = await import("../flows/runtime");
+        await runFlowEngine({
+          tenantId: connection.tenantId,
+          connectionId: connection.id,
+          conversationId: inbound.conversationId,
+          body: inbound.body,
+        });
+      } catch (error) {
+        console.error("[flow-engine] error al ejecutar flujo:", error instanceof Error ? error.message.slice(0, 200) : "desconocido");
+      }
+    }
     return { duplicate: false, ignored: !handled };
   } catch (error) {
     await markFailed(dedupeKey, error);
@@ -577,7 +865,7 @@ async function identifyProducts(tenantId: string, body: string) {
     }));
 }
 
-async function handleIncomingMessage(connection: WhatsAppConnection, item: NormalizedMessage) {
+async function handleIncomingMessage(connection: WhatsAppConnection, item: NormalizedMessage): Promise<InboundResult | null> {
   const externalId = item.remoteJid;
   const existingContact = await getPrisma().whatsAppContact.findFirst({
     where: {
@@ -703,10 +991,11 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
         where: { id: conversation.id },
         data: { lastMessage: previewText.slice(0, 200), lastMessageAt: item.eventAt ?? new Date() },
       });
-      return;
+      return null;
     }
   }
 
+  let created = true;
   try {
     await getPrisma().conversationMessage.create({
       data: {
@@ -726,7 +1015,10 @@ async function handleIncomingMessage(connection: WhatsAppConnection, item: Norma
   } catch (error) {
     // Deduplicación: el mismo messageId puede llegar por received y upsert.
     if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")) throw error;
+    created = false;
   }
+
+  return { conversationId: conversation.id, body: item.body || "", created };
 }
 
 async function handleStatusUpdate(connection: WhatsAppConnection, item: { externalId: string; status: string; providerStatus: string }) {

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   addEdge,
   Background,
@@ -24,6 +25,7 @@ import { FlowSimulator } from "./flow-simulator";
 import {
   BLOCK_LABELS,
   defaultConfig,
+  isMessageTemplateType,
   type FlowBlockType,
   type FlowDTO,
   type FlowIssue,
@@ -78,6 +80,9 @@ export function FlowEditor(props: Props) {
 }
 
 function FlowEditorInner({ flow, templates, globalFlows, canPublish }: Props) {
+  const router = useRouter();
+  const [published, setPublished] = useState(flow.isPublished);
+  const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(flow.hasUnpublishedChanges);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowRFNode>(toRFNodes(flow));
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(toRFEdges(flow));
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -108,6 +113,7 @@ function FlowEditorInner({ flow, templates, globalFlows, canPublish }: Props) {
       type: template.type,
       content: template.content,
       imageId: template.imageId,
+      mediaId: template.mediaId,
     }]),
   );
 
@@ -168,7 +174,10 @@ function FlowEditorInner({ flow, templates, globalFlows, canPublish }: Props) {
       const data = (await response.json()) as { error?: string; flow?: FlowDTO };
       if (!response.ok || !data.flow) { setStatus(data.error ?? "No se pudo guardar"); return; }
       setRevision(data.flow.version.revision);
+      setPublished(data.flow.isPublished);
+      setHasUnpublishedChanges(data.flow.hasUnpublishedChanges);
       setStatus("Borrador guardado. La versión publicada no se ha cambiado.");
+      router.refresh();
     } catch {
       setStatus("No se pudo conectar con el servidor");
     } finally {
@@ -193,7 +202,10 @@ function FlowEditorInner({ flow, templates, globalFlows, canPublish }: Props) {
         return;
       }
       setRevision(data.flow.version.revision);
+      setPublished(true);
+      setHasUnpublishedChanges(false);
       setStatus("Flujo publicado correctamente.");
+      router.refresh();
     } catch {
       setStatus("No se pudo conectar con el servidor");
     } finally {
@@ -211,8 +223,8 @@ function FlowEditorInner({ flow, templates, globalFlows, canPublish }: Props) {
             <Icon name="chevronRight" size={13} />
             <span className="truncate text-foreground">{flow.name}</span>
           </nav>
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${flow.hasUnpublishedChanges ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
-            {!flow.isPublished ? "Borrador" : flow.hasUnpublishedChanges ? "Cambios sin publicar" : "Publicado"}
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${hasUnpublishedChanges ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {!published ? "Borrador" : hasUnpublishedChanges ? "Cambios sin publicar" : "Publicado"}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -316,7 +328,9 @@ function Inspector({
   removeSelected: () => void;
 }) {
   const config = node.config;
-  const available = templates.filter((template) => template.type === (node.type === "CHECKOUT" ? "CHECKOUT" : "MESSAGE") && template.isActive);
+  const available = templates.filter((template) =>
+    template.isActive && (node.type === "CHECKOUT" ? template.type === "CHECKOUT" : isMessageTemplateType(template.type)),
+  );
 
   function toggleTemplate(id: string) {
     const exists = config.templateIds.includes(id);
@@ -445,7 +459,7 @@ function Inspector({
               <span className="text-xs font-medium text-muted">Plantilla final (opcional)</span>
               <select value={config.finalTemplateId} onChange={(event) => updateConfig({ finalTemplateId: event.target.value })} className={inputClass}>
                 <option value="">Ninguna</option>
-                {templates.filter((item) => item.type === "MESSAGE" && item.isActive).map((item) => (
+                {templates.filter((item) => isMessageTemplateType(item.type) && item.isActive).map((item) => (
                   <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
               </select>

@@ -1,5 +1,6 @@
 import { catalogErrorResponse } from "@/lib/catalog/http";
 import { getAdminImage, getApiCatalogContext } from "@/lib/catalog/service";
+import { fileResponse } from "@/lib/storage/http-file-response";
 import { readStoredImage } from "@/lib/storage/product-images";
 
 export const runtime = "nodejs";
@@ -12,13 +13,7 @@ export async function GET(request: Request, { params }: Context) {
     const { imageId } = await params;
     const image = await getAdminImage(actor, imageId);
     const bytes = await readStoredImage(image.storageKey);
-    return new Response(new Uint8Array(bytes), {
-      headers: {
-        "Content-Type": image.mimeType,
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    return fileResponse(request, bytes, image.mimeType);
   } catch (error) {
     return catalogErrorResponse(error);
   }

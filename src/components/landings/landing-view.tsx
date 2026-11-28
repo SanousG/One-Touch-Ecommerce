@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
 import { LandingWhatsappButton } from "./landing-whatsapp-button";
 import { LandingEffect } from "./landing-effect";
+import { HeroMedia } from "./hero-media";
 import { DEFAULT_LANDING_DESIGN } from "@/lib/landings/design";
 import type { LandingContentDTO } from "@/lib/landings/service";
 import type { StoreProductDTO, StoreTenantDTO } from "@/lib/store/service";
@@ -112,49 +113,36 @@ export function LandingView({ tenant, product, content, mode, landingSlug, landi
     </div>
   );
 
-  const imageBlock = d.imageFit === "contain" ? (
+  const imageBlock = product.images.length ? (
+    <HeroMedia
+      items={product.images}
+      height={d.imageHeight}
+      radius={d.imageRadius}
+      primaryColor={d.primaryColor}
+      imageFit={d.imageFit}
+      positionX={d.imagePositionX}
+      positionY={d.imagePositionY}
+      zoom={d.imageZoom}
+      initialUrl={imageUrl}
+      showThumbnails={d.showGallery}
+    />
+  ) : imageUrl ? (
     <div className="flex w-full justify-center">
-      {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageUrl}
-          alt={content.headline}
-          className="h-auto w-auto max-w-full shadow-sm"
-          style={{
-            maxHeight: `${d.imageHeight}px`,
-            borderRadius: `${d.imageRadius}px`,
-          }}
-        />
-      ) : (
-        <span
-          className="flex w-full items-center justify-center bg-background text-slate-300"
-          style={{ height: `${d.imageHeight}px`, borderRadius: `${d.imageRadius}px` }}
-        >
-          <Icon name="image" size={40} />
-        </span>
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imageUrl}
+        alt={content.headline}
+        className="h-auto w-auto max-w-full shadow-sm"
+        style={{ maxHeight: `${d.imageHeight}px`, borderRadius: `${d.imageRadius}px` }}
+      />
     </div>
   ) : (
-    <div
-      className="w-full overflow-hidden bg-background shadow-sm"
+    <span
+      className="flex w-full items-center justify-center bg-background text-slate-300"
       style={{ height: `${d.imageHeight}px`, borderRadius: `${d.imageRadius}px` }}
     >
-      {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageUrl}
-          alt={content.headline}
-          className="h-full w-full object-cover"
-          style={{
-            objectPosition: `${d.imagePositionX}% ${d.imagePositionY}%`,
-            transform: `scale(${d.imageZoom / 100})`,
-            transformOrigin: `${d.imagePositionX}% ${d.imagePositionY}%`,
-          }}
-        />
-      ) : (
-        <span className="flex h-full items-center justify-center text-slate-300"><Icon name="image" size={40} /></span>
-      )}
-    </div>
+      <Icon name="image" size={40} />
+    </span>
   );
 
   return (

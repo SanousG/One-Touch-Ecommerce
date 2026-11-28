@@ -9,10 +9,23 @@ import type { ConversationDTO, ConversationDetailDTO } from "@/lib/whatsapp/conv
 
 type ContextProduct = { sku: string; variantId: string; productName: string; variantName: string; price: string };
 
+type TemplateOption = {
+  id: string;
+  name: string;
+  type: string;
+  content: string;
+  mediaUrl: string | null;
+  mediaMimeType: string | null;
+  mediaFileName: string | null;
+  imageUrl: string | null;
+  imageMimeType: string | null;
+};
+
 type Props = {
   conversations: ConversationDTO[];
   detail: ConversationDetailDTO | null;
   connection: { hasConfiguredConnection: boolean; status: string; verified: boolean };
+  templates: TemplateOption[];
   users: Array<{ id: string; name: string }>;
 };
 
@@ -22,22 +35,136 @@ const STATUS_LABELS: Record<string, string> = {
   RESOLVED: "Resuelta",
 };
 
-export function InboxView({ conversations, detail, connection, users }: Props) {
+export function InboxView({ conversations, detail, connection, templates, users }: Props) {
   const router = useRouter();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imageCaption, setImageCaption] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [templateId, setTemplateId] = useState("");
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [fileKind, setFileKind] = useState<"image" | "video">("image");
+  const [templatePanel, setTemplatePanel] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState<File | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const sendingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
+  const cancelRef = useRef(false);
+
+  const acceptByKind: Record<typeof fileKind, string> = {
+    image: "image/jpeg,image/png,image/webp,image/gif",
+    video: "video/mp4,video/3gpp",
+  };
+
+  function chooseFile(kind: typeof fileKind) {
+    setAttachMenu(false);
+    setTemplatePanel(false);
+    setRecordedAudio(null);
+    setFileKind(kind);
+    window.setTimeout(() => fileInputRef.current?.click(), 0);
+  }
+
+  function chooseTemplate() {
+    setAttachMenu(false);
+    setAttachment(null);
+    setRecordedAudio(null);
+    setTemplatePanel(true);
+  }
+
+  async function loadTemplate(template: TemplateOption) {
+    setTemplatePanel(false);
+    setError(null);
+    setRecordedAudio(null);
+    setDraft(template.content);
+    const url = template.mediaUrl ?? (template.imageMimeType ? template.imageUrl : null);
+    const mime = template.mediaMimeType ?? template.imageMimeType;
+    if (!url || !mime) {
+      setAttachment(null);
+      return;
+    }
+    try {
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error("No se pudo descargar el adjunto");
+      const blob = await response.blob();
+      setAttachment(new File([blob], template.mediaFileName ?? "plantilla", { type: mime }));
+    } catch {
+      setAttachment(null);
+      setError("No se pudo cargar el adjunto de la plantilla");
+    }
+  }
+
+  async function startRecording() {
+    setAttachMenu(false);
+    setError(null);
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("Tu navegador no permite grabar audio desde el micrófono");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferred = ["audio/ogg;codecs=opus", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred } : undefined);
+      chunksRef.current = [];
+      cancelRef.current = false;
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
+      recorder.onstop = () => {
+        const rawMime = recorder.mimeType || preferred || "audio/webm";
+        const mimeType = rawMime.split(";")[0].trim().toLowerCase();
+        const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "m4a" : "webm";
+        if (!cancelRef.current) {
+          const blob = new Blob(chunksRef.current, { type: mimeType });
+          setRecordedAudio(new File([blob], `nota-de-voz.${extension}`, { type: mimeType }));
+          setAttachment(null);
+        }
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        if (timerRef.current) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+        setRecording(false);
+        setRecordingSeconds(0);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      streamRef.current = stream;
+      setAttachment(null);
+      setRecordedAudio(null);
+      setRecording(true);
+      setRecordingSeconds(0);
+      timerRef.current = window.setInterval(() => setRecordingSeconds((seconds) => seconds + 1), 1000);
+    } catch {
+      setError("No se pudo acceder al micrófono");
+    }
+  }
+
+  function stopRecording(cancel = false) {
+    cancelRef.current = cancel;
+    if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+    else if (cancel) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      setRecordedAudio(null);
+      setRecording(false);
+    }
+  }
 
   useEffect(() => {
     const timer = setInterval(() => router.refresh(), 6000);
     return () => clearInterval(timer);
   }, [router]);
+
+  useEffect(() => () => {
+    if (timerRef.current) window.clearInterval(timerRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   useEffect(() => {
     if (!lightbox) return;
@@ -70,48 +197,52 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
   }
 
   async function send() {
-    if (!detail || !draft.trim() || sendingRef.current) return;
-    sendingRef.current = true;
+    if (!detail || sendingRef.current || recording) return;
     const text = draft;
-    setDraft("");
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/admin/conversations/${detail.id}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) { setDraft(text); setError(data.error ?? "No se pudo encolar el mensaje"); return; }
-      setStatus("Mensaje encolado para envío.");
-      router.refresh();
-    } catch {
-      setDraft(text);
-      setError("No se pudo conectar con el servidor");
-    } finally {
-      sendingRef.current = false;
-      setBusy(false);
-    }
-  }
+    const file = attachment;
+    const audio = recordedAudio;
+    if (!text.trim() && !file && !audio) return;
 
-  async function sendImage() {
-    if (!detail || !imageFile || sendingRef.current) return;
     sendingRef.current = true;
     setBusy(true);
     setError(null);
     setStatus(null);
+    let sent = false;
     try {
-      const form = new FormData();
-      form.set("file", imageFile);
-      form.set("caption", imageCaption);
-      const response = await fetch(`/api/admin/conversations/${detail.id}/image`, { method: "POST", body: form });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) { setError(data.error ?? "No se pudo enviar la imagen"); return; }
-      setImageFile(null);
-      setImageCaption("");
-      setStatus("Imagen encolada para envío.");
-      router.refresh();
+      if (audio) {
+        const form = new FormData();
+        form.set("file", audio);
+        const response = await fetch(`/api/admin/conversations/${detail.id}/audio`, { method: "POST", body: form });
+        const data = (await response.json()) as { error?: string };
+        if (!response.ok) { setError(data.error ?? "No se pudo enviar el audio"); return; }
+        setRecordedAudio(null);
+        setStatus("Audio encolado para envío.");
+        sent = true;
+      } else if (file) {
+        const isVideo = file.type.startsWith("video/");
+        const form = new FormData();
+        form.set("file", file);
+        form.set("caption", text);
+        const response = await fetch(`/api/admin/conversations/${detail.id}/${isVideo ? "video" : "image"}`, { method: "POST", body: form });
+        const data = (await response.json()) as { error?: string };
+        if (!response.ok) { setError(data.error ?? "No se pudo enviar el mensaje"); return; }
+        setAttachment(null);
+        setDraft("");
+        setStatus(`${isVideo ? "Video" : "Imagen"} con texto encolado para envío.`);
+        sent = true;
+      } else {
+        const response = await fetch(`/api/admin/conversations/${detail.id}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const data = (await response.json()) as { error?: string };
+        if (!response.ok) { setError(data.error ?? "No se pudo encolar el mensaje"); return; }
+        setDraft("");
+        setStatus("Mensaje encolado para envío.");
+        sent = true;
+      }
+      if (sent) router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
@@ -220,8 +351,32 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
                           <p className="mb-1 italic opacity-70">[Foto no disponible]</p>
                         )
                       ) : null}
+                      {message.kind === "VIDEO" ? (
+                        message.media?.status === "ready" && message.media.path ? (
+                          <video
+                            src={`/api/admin/conversations/${detail.id}/media/${message.id}`}
+                            controls
+                            preload="metadata"
+                            className="mb-1 max-h-64 w-full rounded-lg bg-black"
+                          />
+                        ) : (
+                          <p className="mb-1 italic opacity-70">[Video no disponible]</p>
+                        )
+                      ) : null}
+                      {message.kind === "AUDIO" ? (
+                        message.media?.status === "ready" && message.media.path ? (
+                          <audio
+                            src={`/api/admin/conversations/${detail.id}/media/${message.id}`}
+                            controls
+                            preload="metadata"
+                            className="mb-1 w-full max-w-[240px]"
+                          />
+                        ) : (
+                          <p className="mb-1 italic opacity-70">[Audio no disponible]</p>
+                        )
+                      ) : null}
                       {message.content ? <p className="whitespace-pre-wrap">{message.content}</p> : null}
-                      {!message.content && message.kind !== "IMAGE" ? <p className="whitespace-pre-wrap">(sin texto)</p> : null}
+                      {!message.content && !["IMAGE", "VIDEO", "AUDIO"].includes(message.kind) ? <p className="whitespace-pre-wrap">(sin texto)</p> : null}
                       <p className="mt-1 text-[10px] opacity-70">{message.status}</p>
                     </div>
                   </div>
@@ -234,42 +389,121 @@ export function InboxView({ conversations, detail, connection, users }: Props) {
               </div>
 
               <div className="border-t border-border bg-surface p-3">
-                <div className="flex items-center gap-2">
-                  <label className="cursor-pointer rounded-lg border border-border p-2 text-muted hover:text-primary" title="Adjuntar foto (JPEG, PNG, WebP o GIF, máx. 16 MB)">
-                    <Icon name="copy" size={18} />
+                <div className="rounded-lg border border-border bg-background p-2">
+                  {(attachment || recordedAudio || recording) ? (
+                    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs">
+                      {recording ? (
+                        <>
+                          <span className="text-red-700">🎤 Grabando {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:{String(recordingSeconds % 60).padStart(2, "0")}</span>
+                          <button type="button" onClick={() => stopRecording()} className="rounded-lg bg-primary px-3 py-1 text-xs font-semibold text-white">Detener</button>
+                          <button type="button" onClick={() => stopRecording(true)} className="rounded-lg border border-border px-3 py-1 text-xs">Cancelar</button>
+                        </>
+                      ) : recordedAudio ? (
+                        <>
+                          <span className="truncate">🎤 Nota de voz · {(recordedAudio.size / 1024 / 1024).toFixed(2)} MB</span>
+                          <button type="button" onClick={() => setRecordedAudio(null)} className="ml-auto text-muted hover:text-red-700" title="Quitar audio">×</button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="truncate">
+                            {attachment?.type.startsWith("video/") ? "🎬" : "🖼️"} {attachment?.name} ({((attachment?.size ?? 0) / 1024 / 1024).toFixed(2)} MB)
+                          </span>
+                          <button type="button" onClick={() => setAttachment(null)} className="ml-auto text-muted hover:text-red-700" title="Quitar archivo">×</button>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <button
+                        type="button"
+                        title="Añadir imagen, video, audio o plantilla"
+                        disabled={busy || !connection.verified || recording}
+                        onClick={() => setAttachMenu((open) => !open)}
+                        className="rounded-lg border border-border p-2 text-muted hover:bg-surface hover:text-primary disabled:opacity-50"
+                      >
+                        <Icon name="plus" size={18} />
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={acceptByKind[fileKind]}
+                        className="hidden"
+                        disabled={busy || !connection.verified}
+                        onChange={(event) => {
+                          setAttachment(event.target.files?.[0] ?? null);
+                          setRecordedAudio(null);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      {attachMenu ? (
+                        <>
+                          <button type="button" aria-label="Cerrar menú" className="fixed inset-0 z-10 cursor-default" onClick={() => setAttachMenu(false)} />
+                          <div className="absolute bottom-full left-0 z-20 mb-2 w-44 rounded-lg border border-border bg-surface p-1 shadow-lg">
+                            <button type="button" onClick={() => chooseFile("image")} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs hover:bg-background">
+                              <span>🖼️</span> Imagen
+                            </button>
+                            <button type="button" onClick={() => chooseFile("video")} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs hover:bg-background">
+                              <span>🎬</span> Video
+                            </button>
+                            <button type="button" onClick={() => void startRecording()} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs hover:bg-background">
+                              <span>🎤</span> Audio (micrófono)
+                            </button>
+                            <button type="button" onClick={chooseTemplate} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs hover:bg-background">
+                              <span>💬</span> Plantilla
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                     <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      className="hidden"
-                      disabled={busy || !connection.verified}
-                      onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+                      value={draft}
+                      disabled={busy || recording || Boolean(recordedAudio)}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void send();
+                        }
+                      }}
+                      placeholder={recordedAudio ? "La nota de voz se envía sin texto" : "Escribe un mensaje..."}
+                      className={inputClass}
                     />
-                  </label>
-                  <input
-                    value={draft}
-                    disabled={busy}
-                    onChange={(event) => setDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void send();
-                      }
-                    }}
-                    placeholder="Escribe un mensaje..."
-                    className={inputClass}
-                  />
-                  <button type="button" onClick={send} disabled={busy || !draft.trim() || !connection.verified} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                    Enviar <Icon name="arrow" size={15} />
-                  </button>
-                </div>
-                {imageFile ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2 text-xs">
-                    <span className="truncate">📎 {imageFile.name} ({(imageFile.size / 1024 / 1024).toFixed(2)} MB)</span>
-                    <input value={imageCaption} onChange={(event) => setImageCaption(event.target.value)} placeholder="Pie de foto (opcional)" className={`${inputClass} max-w-xs`} />
-                    <button type="button" onClick={sendImage} disabled={busy || !connection.verified} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Enviar foto</button>
-                    <button type="button" onClick={() => { setImageFile(null); setImageCaption(""); }} className="rounded-lg border border-border px-3 py-1.5 text-xs">Cancelar</button>
+                    <button
+                      type="button"
+                      onClick={() => void send()}
+                      disabled={busy || recording || !connection.verified || (!draft.trim() && !attachment && !recordedAudio)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      Enviar <Icon name="arrow" size={15} />
+                    </button>
                   </div>
-                ) : null}
+                  {templatePanel ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface p-2 text-xs">
+                      <select value={templateId} onChange={(event) => setTemplateId(event.target.value)} className={`${inputClass} max-w-xs`}>
+                        <option value="">Elegir plantilla…</option>
+                        {templates.map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.name} · {template.mediaMimeType?.startsWith("video/") ? "🎬" : template.mediaMimeType ? "🖼️" : "💬"}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!templateId}
+                        onClick={() => {
+                          const template = templates.find((item) => item.id === templateId);
+                          if (template) void loadTemplate(template);
+                        }}
+                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Cargar en el mensaje
+                      </button>
+                      <button type="button" onClick={() => setTemplatePanel(false)} className="rounded-lg border border-border px-3 py-1.5 text-xs">Cerrar</button>
+                      <span className="text-muted">El texto y el adjunto quedan listos para enviar con «Enviar».</span>
+                    </div>
+                  ) : null}
+                </div>
               </div>
               {!connection.verified ? <p className="px-3 pb-3 text-[11px] text-amber-700">La conexión no está verificada; no se pueden encolar mensajes.</p> : null}
             </>

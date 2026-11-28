@@ -12,7 +12,7 @@ import { getPrisma } from "../db/prisma";
 import { requireDashboardContext } from "../tenants/context";
 import { getActiveTenantForUser, getMembershipRole } from "../tenants/service";
 import { shortSuffix, slugify } from "../utils/slug";
-import { deleteStoredImage, saveProductImage, type StoredImage } from "../storage/product-images";
+import { deleteStoredImage, saveProductImage, saveProductVideo, type StoredImage } from "../storage/product-images";
 
 export class NotFoundError extends Error {
   constructor(message = "Recurso no encontrado") {
@@ -487,7 +487,10 @@ export async function addProductImage(
   file: File,
 ): Promise<ProductDTO> {
   await findOwnedProduct(actor.tenantId, productId);
-  const stored = await saveProductImage(file, actor.tenantId, productId);
+  const isVideo = file.type.toLowerCase().startsWith("video/");
+  const stored = isVideo
+    ? await saveProductVideo(file, actor.tenantId, productId)
+    : await saveProductImage(file, actor.tenantId, productId);
   try {
     await getPrisma().$transaction(async (tx) => {
       const count = await tx.productImage.count({ where: { productId, tenantId: actor.tenantId } });
@@ -500,7 +503,7 @@ export async function addProductImage(
           mimeType: stored.mimeType,
           sizeBytes: stored.sizeBytes,
           position: count,
-          isCover: count === 0,
+          isCover: !isVideo && count === 0,
         },
       });
     });
@@ -516,7 +519,8 @@ export async function setCoverImage(
   productId: string,
   imageId: string,
 ): Promise<ProductDTO> {
-  await findOwnedImage(actor, productId, imageId);
+  const image = await findOwnedImage(actor, productId, imageId);
+  if (image.mimeType.startsWith("video/")) throw new ValidationError("Los videos no pueden ser portada");
   await getPrisma().$transaction(async (tx) => {
     await tx.productImage.updateMany({
       where: { productId, tenantId: actor.tenantId },

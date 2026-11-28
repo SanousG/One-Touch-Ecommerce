@@ -25,7 +25,7 @@ export function listProviders(): Array<{
       kind: "META",
       label: "Meta WhatsApp Cloud API",
       available: false,
-      capabilities: { text: false, image: false, document: false, status: false, verify: false, webhook: false },
+      capabilities: { text: false, image: false, video: false, audio: false, document: false, status: false, verify: false, webhook: false },
     },
   ];
 }

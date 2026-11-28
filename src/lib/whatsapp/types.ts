@@ -11,6 +11,8 @@ export type ConnectionCredentials = {
 export type ProviderCapabilities = {
   text: boolean;
   image: boolean;
+  video: boolean;
+  audio: boolean;
   document: boolean;
   status: boolean;
   verify: boolean;
@@ -106,6 +108,8 @@ export type Provider = {
   getConnectionState(credentials: ConnectionCredentials): Promise<ProviderConnectionState>;
   sendText(credentials: ConnectionCredentials, to: string, text: string): Promise<SendResult>;
   sendImage(credentials: ConnectionCredentials, to: string, imageUrl: string, caption?: string): Promise<SendResult>;
+  sendVideo(credentials: ConnectionCredentials, to: string, videoUrl: string, caption?: string): Promise<SendResult>;
+  sendAudio(credentials: ConnectionCredentials, to: string, audioUrl: string): Promise<SendResult>;
   sendDocument(credentials: ConnectionCredentials, to: string, documentUrl: string, fileName?: string): Promise<SendResult>;
   /** Descarga y desencripta un archivo recibido. Devuelve bytes y MIME type. */
   decryptMedia?: (credentials: ConnectionCredentials, input: { messageId: string; media: IncomingMedia }) => Promise<{ bytes: Buffer; mimeType: string } | null>;

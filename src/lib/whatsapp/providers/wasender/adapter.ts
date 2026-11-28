@@ -15,6 +15,8 @@ import { normalizeWasenderWebhook, verifyWasenderSignature } from "./webhook";
 const capabilities: ProviderCapabilities = {
   text: true,
   image: true,
+  video: true,
+  audio: true,
   document: true,
   status: true,
   verify: true,
@@ -97,6 +99,8 @@ export const wasenderProvider: Provider = {
   getConnectionState: readState,
   sendText: (credentials, to, text) => send(credentials, { to, text }),
   sendImage: (credentials, to, imageUrl, caption) => send(credentials, { to, text: caption, imageUrl }),
+  sendVideo: (credentials, to, videoUrl, caption) => send(credentials, { to, text: caption, videoUrl }),
+  sendAudio: (credentials, to, audioUrl) => send(credentials, { to, audioUrl }),
   sendDocument: (credentials, to, documentUrl, fileName) => send(credentials, { to, documentUrl, fileName }),
   decryptMedia: async (credentials, input) => {
     const media = input.media;

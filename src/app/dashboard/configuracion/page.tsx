@@ -1,6 +1,7 @@
 import { ConfigurationCards } from "@/components/settings/configuration-cards";
 import { requireUser } from "@/lib/auth/session";
 import { listCategories, requireCatalogContext } from "@/lib/catalog/service";
+import { listTemplateTypes } from "@/lib/flows/service";
 import { getActiveTenantSettings } from "@/lib/tenants/service";
 import { listConnections, providerCatalog } from "@/lib/whatsapp/service";
 
@@ -8,9 +9,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ConfiguracionPage() {
   const [user, catalogActor] = await Promise.all([requireUser(), requireCatalogContext()]);
-  const [settings, categories, connections] = await Promise.all([
+  const [settings, categories, templateTypes, connections] = await Promise.all([
     getActiveTenantSettings(user.id),
     listCategories(catalogActor),
+    listTemplateTypes(catalogActor),
     listConnections(catalogActor),
   ]);
   const primary = connections.find((connection) => connection.isPrimary) ?? connections[0] ?? null;
@@ -33,6 +35,7 @@ export default async function ConfiguracionPage() {
       <ConfigurationCards
         settings={settings}
         categories={categories}
+        templateTypes={templateTypes}
         connection={connection}
         connections={connections}
         providers={providerCatalog()}

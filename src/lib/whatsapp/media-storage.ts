@@ -18,6 +18,18 @@ export function extensionForMime(mime: string): string {
     "image/png": "png",
     "image/webp": "webp",
     "image/gif": "gif",
+    "video/mp4": "mp4",
+    "video/3gpp": "3gp",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/aac": "aac",
+    "audio/ogg": "ogg",
+    "audio/amr": "amr",
+    "audio/webm": "webm",
+    "audio/mp4": "m4a",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/wav": "wav",
   };
   return map[mime.split(";")[0].trim().toLowerCase()] ?? "bin";
 }

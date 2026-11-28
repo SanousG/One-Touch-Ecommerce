@@ -179,6 +179,136 @@ Se agregó la opción **«Conectar con QR»** en `/dashboard/configuracion/whats
 - El borrado también intenta eliminar la sesión en WasenderAPI mediante `DELETE /api/whatsapp-sessions/{id}` (método opcional `deleteSession` del proveedor, con el PAT solo en servidor). Si la eliminación remota falla, el borrado local continúa para no dejar la conexión atascada. Se agregó `deleteWasenderSession` en `sessions.ts`.
 - **Limpieza real ejecutada:** se eliminó la sesión huérfana `134775` («Ecommerce - Yeltsin», `logged_out`) que quedó en Wasender tras borrar su conexión local. Respuesta HTTP 204; verificado que ya no aparece.
 - **Renovación de QR:** se agregó el botón **«Generar nuevo QR»** en el modal de vinculación, que llama a `POST /api/admin/whatsapp/sessions/[id]/regenerate`. El proveedor ejecuta `POST /api/whatsapp-sessions/{id}/restart` (respaldos: `connect`, `qr-code`, `qr`, `qrcode`) y devuelve un QR fresco convertido a PNG local. Para recuperar el modal de una conexión pendiente tras recargar la página, se agregó el botón **«Ver QR»** en la tarjeta de cada conexión no conectada. El polling conserva el QR mostrado si el proveedor no devuelve uno nuevo de inmediato.
+### AU. Estado «Publicado» se actualiza sin recargar
+
+El usuario reportó que al publicar debía recargar para ver el cambio. El editor mostraba el estado desde la prop `flow` del servidor. Se añadió estado local (`published`, `hasUnpublishedChanges`) actualizado con la respuesta de guardar/publicar y `router.refresh()` en ambas acciones. `lint`, `typecheck`, `build` y Docker OK.
+
+### AT. Motor de flujos: el cliente entra automáticamente
+
+Se conectó el webhook con el diagrama publicado. `handleIncomingMessage` devuelve `{conversationId, body, created}`; `ingestWebhook` llama (import dinámico) a `runFlowEngine` solo para mensajes entrantes nuevos y no `fromMe`.
+
+- `src/lib/flows/runtime.ts`: resuelve el producto desde `Conversation.context.products` (lo genera `identifyProducts` al detectar el SKU en el mensaje del CTA `wa.me`), carga `getPublishedFlowForProduct` y recorre START → MESSAGE/CHECKOUT → DECISION → GLOBAL_FLOW → END con `sourceHandle`.
+- Envía las plantillas del snapshot usando `sendTemplateMessage` (texto + foto/video según el adjunto real); las decisiones se envían como texto y se espera la respuesta: acepta el número de opción (1..n, 0 = fallback) o el texto de la etiqueta. Estado guardado en `Conversation.context.flow` (`frames` para flujos globales, `status` ACTIVE/WAITING_DECISION/DONE) y `mode` BOT/HUMAN.
+- El envío usa `OutboundMessage`; el worker Wasender existente hace la entrega con reintentos. Los ecos `fromMe` se reconcilian y no reinician el flujo.
+- `getPublishedFlowForProduct` ahora devuelve también `templates` y `globalFlows`; se añadió `getPublishedFlowById`.
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK. **Pendiente de validación real:** el disparo con un mensaje entrante que contenga un SKU y un flujo publicado (no se envió ningún mensaje real a un contacto).
+
+### AS. Corrección al crear flujos con Supabase
+
+El usuario reportó «No se pudo completar la operación» al crear un flujo. Los logs mostraron primero `P2028` (transaction timeout de 5 s) y luego `timeout exceeded when trying to connect`: la transacción de `createFlow` contenía `uniqueSlug()`, que usa `getPrisma()` fuera de `tx`; con el pooler limitado a 1 conexión eso bloqueaba la transacción.
+
+- Se movió `uniqueSlug` **antes** de `$transaction` y se subió el timeout de las tres transacciones de flujos (`createFlow`, `saveFlowDraft`, `publishFlow`) a 30 s (`maxWait`/`timeout`).
+- Verificado: `POST /api/admin/flows` con flujo global temporal → **201** y borrado posterior; `lint`, `typecheck`, `build` y Docker OK.
+
+### AR. conversión también de audio/mp4
+
+El navegador del usuario entregó `audio/mp4` y Wasender respondió «File type 'audio/mp4' is not supported». Se generalizó `convertAudioToOgg` para WebM, MP4, M4A y WAV (antes solo WebM) y el nombre del archivo pasa a `.ogg` en todos esos casos. Verificado: conversión MP4/AAC→OGG en el contenedor (10055 bytes de salida), `lint`, `typecheck`, `build` y Docker OK.
+
+### AQ. conversión WebM→OGG para audio grabado
+
+Tras normalizar el MIME, Wasender devolvió HTTP 400 y la UI mostraba el genérico «No se pudo completar la operación». El error real (`Error no controlado en WhatsApp: HTTP 400`) confirmaba que el proveedor rechazaba el WebM/Opus de `MediaRecorder` (Wasender acepta AAC/MP3/OGG/AMR).
+
+- Se instaló `ffmpeg` en la imagen base del Dockerfile y se añadió `convertWebmToOgg` (spawn, stdin/stdout en memoria, límite 32 MB) en `src/lib/whatsapp/audio-conversion.ts`.
+- `sendAudioMessage` convierte `audio/webm` a `audio/ogg` antes de subir a Wasender y guardar la copia; el nombre pasa a `.ogg`.
+- `whatsappErrorResponse` ahora propaga errores de proveedor con `status` HTTP 400-599 y `extractMessage` lee `message/error/msg/detail/data.errors` para no mostrar solo «HTTP 400».
+- Verificado: `lint`, `typecheck`, `build` y Docker OK; `ffmpeg` presente en el contenedor y conversión WebM→OGG probada (9113 bytes de salida). Sin envío real a un contacto.
+
+### AP. Corrección: audio grabado con MIME con parámetros
+
+El usuario reportó «Formato de audio no soportado» al grabar. `MediaRecorder` entrega MIME con codecs (p. ej. `audio/webm;codecs=opus`) y la validación exigía el MIME exacto. Se normaliza en el cliente al crear el `File` y en `sendAudioMessage` (quitar parámetros y minúsculas) antes de validar, subir a Wasender y guardar la copia. El mensaje de error ahora incluye el MIME recibido. `lint`, `typecheck`, `build` y Docker OK.
+
+### AO. Composer unificado: texto + imagen/video en un solo mensaje
+
+El usuario corrigió la interacción: no quiere el adjunto en una fila aparte con otro botón «Enviar». Ahora hay **una sola caja** estilo WhatsApp:
+
+- El texto escrito es el **pie** del archivo. Un solo botón «Enviar» llama a `.../image` o `.../video` con `caption=draft`, produciendo **un mensaje** (burbuja con adjunto + texto), o a `.../messages` si no hay archivo.
+- «Plantilla» ya no envía por su cuenta: **carga** el contenido en la caja y descarga su adjunto desde Drive para dejarlo listo; el usuario lo envía con el mismo botón.
+- «Audio» ya no sube un archivo: usa `getUserMedia` + `MediaRecorder` para grabar desde el **micrófono**, con temporizador, Detener/Cancelar y envío **solo de audio** (sin texto). Se ampliaron los MIME permitidos con `webm/mp4/m4a/wav` según lo que entregue el navegador.
+- `sendTemplateMessage` también quedó como un único mensaje (texto como pie del adjunto) en vez de texto + adjunto separados.
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; el bundle contiene el composer unificado y ya no contiene los botones/fila anteriores. Sin envíos reales.
+
+### AN. Botón «+» en la bandeja con imagen, video, audio y plantilla
+
+A pedido del usuario se reemplazó el icono de adjunto por un botón «+» que despliega un menú con **Imagen, Video, Audio y Plantilla**. La plantilla abre el selector existente dentro del composer; los archivos abren un selector filtrado por tipo.
+
+- **Audio:** Wasender confirma `audioUrl` (AAC/MP3/OGG/AMR, ≤16 MB). Se añadió `sendAudio` al contrato del proveedor, `capabilities.audio`, ruta en el outbox para `kind=AUDIO`, `sendAudioMessage`, `POST /api/admin/conversations/[id]/audio` y burbuja `<audio controls>` en la bandeja.
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; audio inválido → 400 sin subir ni encolar; las cuatro opciones y el menú están en el bundle cliente. No se enviaron mensajes reales.
+
+### AM. Enviar plantillas al chat y soporte de video en Wasender
+
+- **Proveedor:** Wasender confirma `POST /api/send-message` con `videoUrl` (MP4/3GPP, ≤50 MB). Se añadió `sendVideo` al contrato `Provider`, `capabilities.video` y el adaptador (`{to, text, videoUrl}`); el outbox enruta `kind=VIDEO` a `sendVideo`.
+- **Bandeja:** nueva API `POST /api/admin/conversations/[id]/template` envía primero el texto de la plantilla y después su adjunto (foto o video) como mensajes separados y en orden; valida formato/tamaño antes de encolar para no enviar a medias. `POST .../video` permite adjuntar video propio con pie opcional.
+- **UI:** el composer acepta foto o video, muestra el video en la burbuja con controles y agrega un selector «Elegir plantilla…» con botón «Enviar plantilla». Los videos WebM/MOV se rechazan al enviar con mensaje claro (Wasender solo MP4/3GPP).
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; plantilla inexistente → 404, archivo inválido → 400, las opciones de plantilla llegan al HTML de la bandeja. **No se envió ningún mensaje real**: Supabase no tiene conversaciones ni hay destinatario autorizado; queda pendiente la validación real con el usuario.
+
+### AL. Adjunto propio (foto/video) en plantillas
+
+El usuario pidió reemplazar el selector «recursos del negocio» por subida de su propio archivo. Se eliminó el uso de `ProductImage` para plantillas nuevas y se añadió:
+
+- **BD:** migración `20261127140000_template_media_uploads` con tabla `template_media` (Drive `storageKey`, mime, tamaño, tenant) y `message_templates.mediaId` (FK `ON DELETE SET NULL`). 14 migraciones aplicadas.
+- **Storage:** `saveTemplateMedia` en `product-images.ts` valida JPEG/PNG/WebP ≤5 MB o MP4/WebM/MOV ≤50 MB con firma de bytes y sube a `OneTouch/.../Plantillas/<tenant>` en Drive. Errores de validación mapeados a HTTP 400.
+- **API:** `POST /api/admin/templates/media` (multipart) sube y devuelve `{id,url,mimeType,fileName}`; `GET /api/admin/templates/media/[id]/file` sirve bytes con `Range`/206 y auth de tenant; `DELETE /api/admin/templates/media/[id]` borra en Drive. Plantillas creadas/actualizadas con `mediaId`; al quitar o reemplazar el adjunto se limpia el archivo anterior si ya no está en uso. Plantillas antiguas con `imageId` siguen legibles.
+- **UI:** el modal tiene input de archivo propio, estado «Subiendo a Drive…», botón Quitar y vista previa inmediata (foto o `<video controls>`) en la burbuja de WhatsApp. La tabla muestra FOTO/VIDEO.
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; subida PNG → 201 y archivo servido 200 `image/png`; plantilla con media → DTO correcto; borrar media en uso → 409; al quitarlo se limpia solo; tipo inválido → 400. Datos de prueba eliminados (0 plantillas y 0 archivos de prueba).
+
+### AK. Módulo de Tipos de plantilla en Configuración
+
+A pedido del usuario («como categoría, para agregar más tipos») los tipos dejaron de ser un enum fijo y pasaron a un catálogo editable por negocio:
+
+- **BD:** migración `20261127130000_template_types_catalog`: tabla `template_types` (tenantId, name, slug, description, isSystem, único por tenant+slug), `message_templates.type` convertido de enum a texto (sin perder plantillas existentes) y seed de los 10 tipos predeterminados por tenant. El servicio además los garantiza en cada tenant nuevo (`ensureDefaultTemplateTypes`). 13 migraciones aplicadas.
+- **API:** `GET/POST /api/admin/template-types` y `PATCH/DELETE /api/admin/template-types/[id]`, con `flowErrorResponse`. Los tipos predeterminados no se pueden editar ni borrar; borrar un tipo en uso responde 409; `checkout`/`message` están reservados.
+- **UI:** nueva tarjeta «Tipos de plantilla» en Configuración, con listado, badge «Predeterminado», alta, edición y baja de tipos propios. Plantillas y bloques Mensaje leen el catálogo (los tipos nuevos aparecen en el selector).
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; los 10 tipos sembrados; crear tipo «Recordatorio» → 201; plantilla con ese tipo → 201; tipo en uso → 409; tipo libre → 200; tipo inválido en plantilla → 400. Datos de prueba eliminados, sin dejar residuos.
+
+### AJ. Plantillas de mensaje: más tipos, contenido amplio, emojis, multimedia y preview
+
+A pedido del usuario se amplió `/dashboard/templates`:
+
+- **Tipos:** el enum `TemplateType` pasó de 2 a 10 valores (`MESSAGE`, `CHECKOUT`, `GREETING`, `PRODUCT`, `PROMOTION`, `FOLLOW_UP`, `CONFIRMATION`, `DELIVERY`, `THANKS`, `FAQ`). Migración `20261127120000_expand_template_types` aplicada en Supabase (12 migraciones). Los bloques Mensaje de los flujos aceptan todos los tipos excepto Checkout; los bloques Checkout siguen exigiendo Checkout.
+- **Contenido:** textarea de 12 filas / 220 px mínimo con contador (`/ 4000 caracteres`, límite existente del servidor) y barra de 12 emojis insertables. El servidor ya permitía emojis ( solo rechaza HTML).
+- **Multimedia:** el selector de adjuntos usa los archivos del catálogo con etiqueta 🖼️ FOTO / 🎬 VIDEO y sirve las URLs por `/api/admin/products/images/[id]/file` (funciona con Drive/Range).
+- **Preview:** panel lateral con burbuja estilo WhatsApp (hora y doble check) que muestra texto y foto/video adjuntos en vivo.
+- **DTO:** `TemplateDTO.imageMimeType` nuevo para distinguir foto/video en la tabla.
+- **Verificado:** `lint`, `typecheck`, `build` y Docker OK; los 10 tipos y el preview están en el bundle cliente; `POST /api/admin/templates` con tipo inválido → 400; con `GREETING` + emoji → 201 (plantilla de prueba eliminada después). Sin secretos en logs ni docs.
+
+### AI. Miniatura del video sin foto de portada
+
+El usuario pidió que la miniatura del video **no muestre la primera foto**, sino un fondo negro que indique claramente que es video. Se eliminó el `<img>` con `poster` en ambos selectores (editor de producto y selector de foto principal de la landing); ahora es un bloque `bg-slate-900` con círculo ▶ y etiqueta VIDEO. **Verificado en HTML de ambas rutas:** fondo oscuro y etiqueta presentes, sin `img` de "Video del producto". `lint`, `typecheck`, `build` y Docker OK.
+
+### AH. Video en el selector de foto principal de la landing
+
+El usuario mostró DevTools y el 404 de favicon, pero el problema real era otra pantalla: `/dashboard/landings/[id]` (editor de landing), no el editor de producto. Su selector «Fotografía principal» seguía renderizando `<img>` para todos los archivos, incluido el video. Se corrigió: los videos ahora se muestran como miniatura oscura con «▶» y etiqueta VIDEO, **no se pueden elegir como portada** (la portada debe ser foto) y se añadió una nota indicando que el video aparece en la galería. **Verificado en HTML:** miniatura, etiqueta y nota presentes en el editor de landing. `lint`, `typecheck`, `build` y Docker OK.
+
+### AG. Miniatura de video: fallback antihíbrido
+
+El usuario siguió viendo el icono roto. El `src` de la miniatura respondía 200 y el HTML del editor ya era el nuevo, así que se reforzó: fondo degradado oscuro en la tarjeta, `onError` que oculta el `<img>` si falla (evita el icono roto) y query `?v=2` para forzar recarga del navegador. **Verificado en HTML:** las tres marcas presentes. Si persiste, es caché local: recarga fuerte o ventana de incógnito.
+
+### AF. Miniatura de video en el editor
+
+A pesar del `<video>` con `poster`, el usuario seguía viendo un icono de imagen rota en la tarjeta del editor. Se reemplazó el reproductor de la tarjeta por una **miniatura `<img>`** (usa la primera foto del producto como portada) con círculo «▶» y etiqueta «VIDEO». El video se reproduce en la galería de la landing. **Verificado en HTML:** `alt="Video del producto"`, overlay y etiqueta presentes. Recarga fuerte recomendada.
+
+### AE. Galería integrada en la foto de portada
+
+El usuario pidió que las miniaturas estén **debajo de la foto principal**, no en una sección aparte, y que al seleccionarlas cambie la imagen/video manteniendo el tamaño. Se creó `HeroMedia` (cliente) que reemplaza el bloque de imagen del hero: archivo principal (foto o video) con la altura/esquinas configuradas y miniaturas cuadradas debajo; respeta `imageFit`, `object-position`, zoom y el interruptor `showGallery`. Se eliminó la sección separada «Galería del producto» y el componente `ProductMediaGallery`. Además se añadió `poster` al video en el editor (usa la primera foto) para que no parezca roto. **Verificado:** landing sin sección separada, 3 miniaturas y `<video>`; editor con `<video poster>` e insignia «▶ VIDEO». `lint`, `typecheck`, `build` y Docker OK.
+
+### AD. Reproducción de video y galería con miniaturas
+
+El usuario reportó que el video parecía roto y que la galería se veía fea. Causas: el endpoint de archivos no soportaba peticiones `Range` (necesarias para `<video>`) y el editor usaba la URL pública del producto. Se agregó `fileResponse` con soporte 206/`Accept-Ranges` en `/api/images/[id]/file` y `/api/admin/products/images/[id]/file`; el editor y `ImageManager` ahora usan la ruta admin. La galería se rediseñó con `ProductMediaGallery`: **un archivo grande** (foto o video con controles) y **miniaturas cuadradas abajo**; al hacer clic en una miniatura cambia el archivo principal manteniendo el mismo tamaño. **Validado:** petición con `Range` devolvió 206 con `Content-Range: bytes 0-99/1513047`; la landing mostró 3 miniaturas y `<video>`. `lint`, `typecheck`, `build` y Docker OK.
+
+### AC. Video en el editor: apariencia de error
+
+El usuario vio una tarjeta con icono de imagen rota en «Fotografía principal». La causa era HTML del editor anterior al despliegue: las tres URLs respondían 200 (`image/jpeg`, `image/jpeg`, `video/mp4`). Se verificó que el editor actual renderiza `<video>` y la opción «Añadir video», y se añadió una insignia «▶ VIDEO» sobre el reproductor para evitar confusión. Recomendación: recarga fuerte (Ctrl+Shift+R).
+
+### AB. Videos de producto y galería en la landing
+
+El usuario pidió subir video al producto y mostrar todas las fotos/video en la landing.
+
+- `saveProductVideo` en `storage/product-images.ts`: MP4/WebM/MOV hasta 50 MB, valida firma y guarda en Drive (`Productos/<tenant>/videos`). `addProductImage` detecta `video/` y elige el guardado correcto; los videos nunca son portada y `setCoverImage` los rechaza.
+- Editor de producto: nueva opción «Añadir video» junto a «Añadir foto»; las tarjetas muestran `<video controls>` para videos y ocultan la acción de portada.
+- `StoreImageDTO` y `publicProductInclude` ahora incluyen `mimeType`; `adminToStoreProduct` lo propaga al editor de landing.
+- Landing: nueva sección «Galería del producto» con todas las fotos en cuadrícula (`object-contain`, sin recorte) y el video grande con controles. Interruptor `showGallery` en Diseño y Opciones (por defecto activo).
+- **Validado en vivo:** se subió un MP4 real de 788 KB, se guardó como `video/mp4` con `isCover=false`, la landing pública mostró `<video>` y la galería con las fotos; el video de prueba se eliminó (y su archivo de Drive). `lint`, `typecheck`, `build` y Docker OK.
+
 ### AA. Una sola cabecera en la landing pública
 
 La landing pública heredaba el layout de la tienda (`StoreHeader` + `StoreFooter`) y además renderizaba su propia cabecera. Se creó `StoreShell` (cliente, usa `usePathname`) que omite cabecera/pie de tienda cuando la ruta contiene `/landing/`. **Verificado:** en la landing no aparece «Carrito» y sí «Ver tienda»; en la tienda ocurre al revés.

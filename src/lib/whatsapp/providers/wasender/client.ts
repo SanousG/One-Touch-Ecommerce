@@ -136,7 +136,17 @@ export async function wasenderUploadMedia(
 export function extractMessage(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const record = body as Record<string, unknown>;
-  if (typeof record.message === "string") return record.message.slice(0, 300);
+  const data = record.data && typeof record.data === "object" ? record.data as Record<string, unknown> : {};
+  const candidates = [record.message, record.error, record.msg, record.detail, data.message, data.error];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim().slice(0, 300);
+  }
+  if (Array.isArray(record.errors)) {
+    const first = record.errors[0];
+    if (first && typeof first === "object" && typeof (first as Record<string, unknown>).message === "string") {
+      return String((first as Record<string, unknown>).message).slice(0, 300);
+    }
+  }
   return null;
 }
 
